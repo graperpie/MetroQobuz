@@ -50,6 +50,7 @@ import com.metrolist.music.constants.AutoSkipNextOnErrorKey
 import com.metrolist.music.constants.DisableLoadMoreWhenRepeatAllKey
 import com.metrolist.music.constants.EnableGoogleCastKey
 import com.metrolist.music.constants.HistoryDuration
+import com.metrolist.music.constants.HifiApiUrlKey
 import com.metrolist.music.constants.KeepScreenOn
 import com.metrolist.music.constants.PauseOnMute
 import com.metrolist.music.constants.PersistentQueueKey
@@ -156,6 +157,10 @@ fun PlayerSettings(
         AutoSkipNextOnErrorKey,
         defaultValue = false
     )
+    val (hifiApiUrl, onHifiApiUrlChange) = rememberPreference(
+        HifiApiUrlKey,
+        defaultValue = "https://api.monochrome.tf"
+    )
     val (persistentShuffleAcrossQueues, onPersistentShuffleAcrossQueuesChange) = rememberPreference(
         PersistentShuffleAcrossQueuesKey,
         defaultValue = false
@@ -196,6 +201,10 @@ fun PlayerSettings(
     var showAudioQualityDialog by remember {
         mutableStateOf(false)
     }
+ 
+    var showHifiApiUrlDialog by remember {
+        mutableStateOf(false)
+    }
 
     if (showAudioQualityDialog) {
         EnumDialog(
@@ -212,11 +221,25 @@ fun PlayerSettings(
                     AudioQuality.AUTO -> stringResource(R.string.audio_quality_auto)
                     AudioQuality.HIGH -> stringResource(R.string.audio_quality_high)
                     AudioQuality.LOW -> stringResource(R.string.audio_quality_low)
+                    AudioQuality.LOSSLESS -> stringResource(R.string.audio_quality_lossless)
+                    AudioQuality.HI_RES_LOSSLESS -> stringResource(R.string.audio_quality_hi_res_lossless)
                 }
             }
         )
     }
 
+    if (showHifiApiUrlDialog) {
+        com.metrolist.music.ui.component.TextFieldDialog(
+            initialTextFieldValue = androidx.compose.ui.text.input.TextFieldValue(hifiApiUrl, androidx.compose.ui.text.TextRange(hifiApiUrl.length)),
+            onDone = {
+                onHifiApiUrlChange(it)
+                showHifiApiUrlDialog = false
+            },
+            onDismiss = { showHifiApiUrlDialog = false },
+            title = { Text(stringResource(R.string.hifi_api_url)) }
+        )
+    }
+ 
     Column(
         Modifier
             .windowInsetsPadding(
@@ -269,10 +292,18 @@ fun PlayerSettings(
                                 AudioQuality.AUTO -> stringResource(R.string.audio_quality_auto)
                                 AudioQuality.HIGH -> stringResource(R.string.audio_quality_high)
                                 AudioQuality.LOW -> stringResource(R.string.audio_quality_low)
+                                AudioQuality.LOSSLESS -> stringResource(R.string.audio_quality_lossless)
+                                AudioQuality.HI_RES_LOSSLESS -> stringResource(R.string.audio_quality_hi_res_lossless)
                             }
                         )
                     },
                     onClick = { showAudioQualityDialog = true }
+                ))
+                add(Material3SettingsItem(
+                    icon = painterResource(R.drawable.link),
+                    title = { Text(stringResource(R.string.hifi_api_url)) },
+                    description = { Text(hifiApiUrl) },
+                    onClick = { showHifiApiUrlDialog = true }
                 ))
                 add(Material3SettingsItem(
                     icon = painterResource(R.drawable.linear_scale),

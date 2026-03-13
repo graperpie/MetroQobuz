@@ -91,6 +91,8 @@ enum class AudioQuality {
     AUTO,
     HIGH,
     LOW,
+    LOSSLESS,
+    HI_RES_LOSSLESS
 }
 
 val AudioOffload = booleanPreferencesKey("enableOffload")
@@ -139,6 +141,9 @@ val DiscordAdvancedModeKey = booleanPreferencesKey("discordAdvancedMode")
 
 // Google Cast
 val EnableGoogleCastKey = booleanPreferencesKey("enableGoogleCast")
+
+// HiFi API
+val HifiApiUrlKey = stringPreferencesKey("hifiApiUrl")
 
 // Listen Together
 val ListenTogetherServerUrlKey = stringPreferencesKey("listenTogetherServerUrl")

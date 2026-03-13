@@ -108,6 +108,7 @@ class WrappedAudioService(
             }
             val playbackData = withContext(Dispatchers.IO) {
                 YTPlayerUtils.playerResponseForPlayback(
+                    context = context,
                     videoId = songId,
                     audioQuality = audioQuality,
                     connectivityManager = connectivityManager,

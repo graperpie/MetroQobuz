@@ -5,6 +5,7 @@
 
 package com.metrolist.music.utils
 
+import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Uri
 import android.util.Log
@@ -27,6 +28,7 @@ import com.metrolist.innertube.models.YouTubeClient.Companion.WEB_REMIX
 import com.metrolist.innertube.models.response.PlayerResponse
 import com.metrolist.music.constants.AudioQuality
 import com.metrolist.music.utils.cipher.CipherDeobfuscator
+import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.YTPlayerUtils.MAIN_CLIENT
 import com.metrolist.music.utils.YTPlayerUtils.STREAM_FALLBACK_CLIENTS
 import com.metrolist.music.utils.YTPlayerUtils.validateStatus
@@ -34,6 +36,7 @@ import com.metrolist.music.utils.potoken.PoTokenGenerator
 import com.metrolist.music.utils.potoken.PoTokenResult
 import com.metrolist.music.utils.sabr.EjsNTransformSolver
 import okhttp3.OkHttpClient
+import com.metrolist.music.constants.HifiApiUrlKey
 import timber.log.Timber
 
 object YTPlayerUtils {
@@ -75,6 +78,7 @@ object YTPlayerUtils {
      * Format & stream can be from [MAIN_CLIENT] or [STREAM_FALLBACK_CLIENTS].
      */
     suspend fun playerResponseForPlayback(
+        context: Context,
         videoId: String,
         playlistId: String? = null,
         audioQuality: AudioQuality,
@@ -138,6 +142,64 @@ object YTPlayerUtils {
                 Timber.tag(logTag).d("WEB_CREATOR works for age-restricted content")
                 mainPlayerResponse = creatorResponse
                 usedAgeRestrictedClient = WEB_CREATOR
+            }
+        }
+
+        // Provide HiFi API integration for lossless and hi-res lossless qualities
+        val hifiApiUrl = context.dataStore[HifiApiUrlKey] ?: "https://api.monochrome.tf"
+        val title = mainPlayerResponse.videoDetails?.title
+        val author = mainPlayerResponse.videoDetails?.author
+
+        if (title != null && author != null) {
+            val qualitiesToTry = when (audioQuality) {
+                AudioQuality.HI_RES_LOSSLESS -> listOf("HI_RES_LOSSLESS", "LOSSLESS")
+                AudioQuality.LOSSLESS -> listOf("LOSSLESS")
+                else -> emptyList()
+            }
+
+            for (qualityStr in qualitiesToTry) {
+                Timber.tag(logTag).d("Attempting HiFi stream for $title with quality $qualityStr")
+                val hifiTrackId = HifiApi.searchTrack(title, author, hifiApiUrl)
+                if (hifiTrackId != null) {
+                    val hifiStreamUrl = HifiApi.getStreamUrl(hifiTrackId, qualityStr, hifiApiUrl)
+                    if (hifiStreamUrl != null) {
+                        Timber.tag(logTag).d("Obtained HiFi stream URL from HifiApi for $title ($qualityStr)")
+                        // Return the PlaybackData directly with a mock format
+                        val mockFormat = PlayerResponse.StreamingData.Format(
+                            itag = 999,
+                            url = hifiStreamUrl,
+                            mimeType = "audio/flac", // HiFi stream is primarily FLAC
+                            bitrate = if (qualityStr == "HI_RES_LOSSLESS") 2000000 else 1411000,
+                            width = null,
+                            height = null,
+                            contentLength = null,
+                            quality = qualityStr,
+                            fps = null,
+                            qualityLabel = null,
+                            averageBitrate = null,
+                            audioQuality = qualityStr,
+                            approxDurationMs = (mainPlayerResponse.videoDetails?.lengthSeconds?.toLongOrNull()?.times(1000))?.toString(),
+                            audioSampleRate = null, // Auto-detect from stream
+                            audioChannels = null, // Auto-detect from stream
+                            loudnessDb = mainPlayerResponse.playerConfig?.audioConfig?.loudnessDb,
+                            lastModified = null,
+                            signatureCipher = null,
+                            cipher = null,
+                            audioTrack = PlayerResponse.StreamingData.Format.AudioTrack("Original", "original", false)
+                        )
+                        return Result.success(PlaybackData(
+                            mainPlayerResponse.playerConfig?.audioConfig,
+                            mainPlayerResponse.videoDetails,
+                            mainPlayerResponse.playbackTracking,
+                            mockFormat,
+                            hifiStreamUrl,
+                            86400 // Mock 1 day expiration
+                        ))
+                    }
+                }
+            }
+            if (qualitiesToTry.isNotEmpty()) {
+                Timber.tag(logTag).w("Failed to find suitable HiFi stream for $title. Falling back to typical streams.")
             }
         }
 
@@ -389,7 +451,7 @@ object YTPlayerUtils {
             ?.maxByOrNull {
                 it.bitrate * when (audioQuality) {
                     AudioQuality.AUTO -> if (connectivityManager.isActiveNetworkMetered) -1 else 1
-                    AudioQuality.HIGH -> 1
+                    AudioQuality.HIGH, AudioQuality.LOSSLESS, AudioQuality.HI_RES_LOSSLESS -> 1
                     AudioQuality.LOW -> -1
                 } + (if (it.mimeType.startsWith("audio/webm")) 10240 else 0) // prefer opus stream
             }

@@ -65,6 +65,7 @@ import androidx.media3.exoplayer.audio.SilenceSkippingAudioProcessor
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder
 import androidx.media3.extractor.ExtractorsFactory
+import androidx.media3.extractor.flac.FlacExtractor
 import androidx.media3.extractor.mkv.MatroskaExtractor
 import androidx.media3.extractor.mp4.FragmentedMp4Extractor
 import androidx.media3.session.CommandButton
@@ -771,10 +772,14 @@ class MusicService :
 
         combine(
             dataStore.data.map { it[AudioOffload] ?: false },
-            dataStore.data.map { it[CrossfadeEnabledKey] ?: false }
-        ) { offloadPref, crossfadeEnabled ->
-            // Force disable offload if crossfade is enabled to prevent volume ramp issues
-            if (crossfadeEnabled) false else offloadPref
+            dataStore.data.map { it[CrossfadeEnabledKey] ?: false },
+            dataStore.data.map { it[AudioQualityKey].toEnum(com.metrolist.music.constants.AudioQuality.AUTO) }
+        ) { offloadPref, crossfadeEnabled, quality ->
+            // Force disable offload if crossfade is enabled or if using HiFi quality
+            // HiFi streams (FLAC) often have issues with hardware offload on many devices
+            val isHiFi = quality == com.metrolist.music.constants.AudioQuality.HI_RES_LOSSLESS || 
+                         quality == com.metrolist.music.constants.AudioQuality.LOSSLESS
+            if (crossfadeEnabled || isHiFi) false else offloadPref
         }.distinctUntilChanged()
             .collectLatest(scope) { useOffload ->
                 player.setOffloadEnabled(useOffload)
@@ -1039,7 +1044,11 @@ class MusicService :
             runBlocking {
                 val offload = dataStore.get(AudioOffload, false)
                 val crossfade = dataStore.get(CrossfadeEnabledKey, false)
-                setOffloadEnabled(if (crossfade) false else offload)
+                val quality = dataStore.get(AudioQualityKey).toEnum(com.metrolist.music.constants.AudioQuality.AUTO)
+                val isHiFi = quality == com.metrolist.music.constants.AudioQuality.HI_RES_LOSSLESS || 
+                             quality == com.metrolist.music.constants.AudioQuality.LOSSLESS
+                
+                setOffloadEnabled(if (crossfade || isHiFi) false else offload)
                 skipSilenceEnabled = dataStore.get(SkipSilenceKey, false)
             }
             addAnalyticsListener(PlaybackStatsListener(false, this@MusicService))
@@ -2889,6 +2898,7 @@ class MusicService :
             Timber.tag("MusicService").i("FETCHING STREAM: $mediaId | quality=$audioQuality")
             val playbackData = runBlocking(Dispatchers.IO) {
                 YTPlayerUtils.playerResponseForPlayback(
+                    this@MusicService,
                     mediaId,
                     audioQuality = audioQuality,
                     connectivityManager = connectivityManager,
@@ -2941,16 +2951,17 @@ class MusicService :
                             id = mediaId,
                             itag = format.itag,
                             mimeType = format.mimeType.split(";")[0],
-                            codecs = format.mimeType.split("codecs=")[1].removeSurrounding("\""),
+                            codecs = format.mimeType.substringAfter("codecs=", "").removeSurrounding("\"").takeIf { it.isNotEmpty() } ?: "flac",
                             bitrate = format.bitrate,
                             sampleRate = format.audioSampleRate,
-                            contentLength = format.contentLength!!,
+                            contentLength = format.contentLength ?: 0L,
                             loudnessDb = loudnessDb,
                             perceptualLoudnessDb = perceptualLoudnessDb,
                             playbackUrl = nonNullPlayback.playbackTracking?.videostatsPlaybackUrl?.baseUrl
                         )
                     )
                 }
+
                 scope.launch(Dispatchers.IO) { recoverSong(mediaId, nonNullPlayback) }
 
                 // Clear bypass flag now that we've fetched fresh stream
@@ -2971,7 +2982,7 @@ class MusicService :
         DefaultMediaSourceFactory(
             createDataSourceFactory(),
             ExtractorsFactory {
-                arrayOf(MatroskaExtractor(), FragmentedMp4Extractor())
+                arrayOf(MatroskaExtractor(), FragmentedMp4Extractor(), FlacExtractor())
             },
         )
 
@@ -3261,6 +3272,7 @@ class MusicService :
         return withContext(Dispatchers.IO) {
             try {
                 val playbackData = YTPlayerUtils.playerResponseForPlayback(
+                    context = this@MusicService,
                     videoId = mediaId,
                     audioQuality = audioQuality,
                     connectivityManager = connectivityManager,
