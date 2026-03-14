@@ -11,7 +11,7 @@
 - offload won't work, but who uses that anyway
 - some more idk about yet
 
-<h2>FEATURES COMPARED TO MetroTidal</h2>
+<h2>FEATURES COMPARED TO Metrolist</h2>
 - Lossless and Hi-Res Lossless (broken) streaming
 - Tidal backend
 - that's... pretty much it.
