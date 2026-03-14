@@ -152,6 +152,7 @@ import com.metrolist.music.extensions.togglePlayPause
 import com.metrolist.music.extensions.toggleRepeatMode
 import com.metrolist.music.listentogether.RoomRole
 import com.metrolist.music.models.MediaMetadata
+import com.metrolist.music.ui.component.AudioQualityLabel
 import com.metrolist.music.ui.component.BottomSheet
 import com.metrolist.music.ui.component.BottomSheetState
 import com.metrolist.music.ui.component.LocalBottomSheetPageState
@@ -279,6 +280,10 @@ fun BottomSheetPlayer(
     val playbackState by playerConnection.playbackState.collectAsState()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
     val currentSong by playerConnection.currentSong.collectAsState(initial = null)
+    val database = LocalDatabase.current
+    val currentFormat by remember(mediaMetadata?.id) {
+        database.format(mediaMetadata?.id)
+    }.collectAsState(initial = null)
     val automix by playerConnection.service.automixItems.collectAsState()
     val repeatMode by playerConnection.repeatMode.collectAsState()
     val canSkipPrevious by playerConnection.canSkipPrevious.collectAsState()
@@ -957,6 +962,12 @@ fun BottomSheetPlayer(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         if (mediaMetadata.explicit) MIcon.Explicit()
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
 
                         if (mediaMetadata.artists.any { it.name.isNotBlank() }) {
                             val annotatedString =
@@ -1039,6 +1050,13 @@ fun BottomSheetPlayer(
                             }
                         }
                     }
+
+                    AudioQualityLabel(
+                        quality = currentFormat?.quality,
+                        modifier = Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .padding(top = 8.dp)
+                    )
                 }
 
                 Spacer(modifier = Modifier.width(12.dp))

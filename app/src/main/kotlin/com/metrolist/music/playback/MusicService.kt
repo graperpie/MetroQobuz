@@ -2957,6 +2957,7 @@ class MusicService :
                             contentLength = format.contentLength ?: 0L,
                             loudnessDb = loudnessDb,
                             perceptualLoudnessDb = perceptualLoudnessDb,
+                            quality = format.quality,
                             playbackUrl = nonNullPlayback.playbackTracking?.videostatsPlaybackUrl?.baseUrl
                         )
                     )

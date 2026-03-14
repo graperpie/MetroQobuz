@@ -97,6 +97,7 @@ import com.metrolist.music.ui.menu.SongMenu
 import com.metrolist.music.ui.menu.YouTubeAlbumMenu
 import com.metrolist.music.ui.utils.backToMain
 import com.metrolist.music.utils.makeTimeString
+import com.metrolist.music.ui.component.AudioQualityLabel
 import com.metrolist.music.utils.rememberPreference
 import com.metrolist.music.viewmodels.AlbumViewModel
 
@@ -137,6 +138,10 @@ fun AlbumScreen(
             }
             songs
         }
+
+    val currentFormat by remember(albumWithSongs?.songs) {
+        database.format(albumWithSongs?.songs?.firstOrNull()?.id)
+    }.collectAsState(initial = null)
 
     var inSelectMode by rememberSaveable { mutableStateOf(false) }
     val selection =
@@ -299,6 +304,11 @@ fun AlbumScreen(
                                 },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                        )
+
+                        AudioQualityLabel(
+                            quality = currentFormat?.quality,
+                            modifier = Modifier.padding(top = 8.dp)
                         )
                     }
 

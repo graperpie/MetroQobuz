@@ -8,7 +8,10 @@ import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import android.util.Xml
+import org.xmlpull.v1.XmlPullParser
 import timber.log.Timber
+import java.io.StringReader
 
 object HifiApi {
     private const val TAG = "HifiApi"
@@ -111,10 +114,16 @@ object HifiApi {
                         return streamUrl
                     }
                 } else if (manifestMimeType == "application/dash+xml") {
-                    Timber.tag(TAG).w("DASH manifest parsing not fully implemented. Quality $quality might not play.")
-                    // Fall back to LOSSLESS if we have a DASH manifest for HI_RES
+                    val streamUrl = parseDashManifest(decodedManifest)
+                    if (streamUrl != null) {
+                        Timber.tag(TAG).d("Extracted DASH stream URL")
+                        return streamUrl
+                    }
+                    
+                    Timber.tag(TAG).w("Failed to parse DASH manifest. Quality $quality might not play.")
+                    // Fall back to LOSSLESS if we have a DASH manifest for HI_RES and parsing failed
                     if (quality == "HI_RES_LOSSLESS") {
-                         Timber.tag(TAG).d("Falling back to LOSSLESS since HI_RES_LOSSLESS provided a DASH manifest")
+                         Timber.tag(TAG).d("Falling back to LOSSLESS since HI_RES_LOSSLESS DASH parsing failed")
                          return getStreamUrl(trackId, "LOSSLESS", baseUrl)
                     }
                 }
@@ -129,6 +138,33 @@ object HifiApi {
             return getStreamUrl(trackId, "LOSSLESS", baseUrl)
         }
         
+        return null
+    }
+
+    /**
+     * Parses a DASH manifest to extract the stream URL from the BaseURL tag.
+     */
+    private fun parseDashManifest(manifest: String): String? {
+        try {
+            val parser = Xml.newPullParser()
+            parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
+            parser.setInput(StringReader(manifest))
+            
+            var eventType = parser.eventType
+            while (eventType != XmlPullParser.END_DOCUMENT) {
+                if (eventType == XmlPullParser.START_TAG) {
+                    val name = parser.name
+                    if (name == "BaseURL") {
+                        if (parser.next() == XmlPullParser.TEXT) {
+                            return parser.text
+                        }
+                    }
+                }
+                eventType = parser.next()
+            }
+        } catch (e: Exception) {
+            Timber.tag(TAG).e(e, "Error parsing DASH manifest")
+        }
         return null
     }
 }

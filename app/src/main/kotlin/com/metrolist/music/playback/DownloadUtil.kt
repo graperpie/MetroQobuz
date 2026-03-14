@@ -117,6 +117,7 @@ constructor(
                         contentLength = format.contentLength ?: 0L,
                         loudnessDb = playbackData.audioConfig?.loudnessDb,
                         perceptualLoudnessDb = playbackData.audioConfig?.perceptualLoudnessDb,
+                        quality = format.quality,
                         playbackUrl = playbackData.playbackTracking?.videostatsPlaybackUrl?.baseUrl
                     ),
                 )
