@@ -412,6 +412,21 @@
     <string name="last_fm_send_likes_description">Love or unlove songs in Last.fm when you like or unlike them in Metroapple</string>
     <string name="logging_in">Logging in…</string>
 
+    <!-- Spotify Canvas -->
+    <string name="spotify_canvas">Spotify Canvas</string>
+    <string name="enable_spotify_canvas">Enable Spotify Canvas</string>
+    <string name="enable_spotify_canvas_desc">Shows Spotify looping Canvas video when one is available for the current song</string>
+    <string name="spotify_canvas_requires_cookie">Log in with Spotify before enabling Canvas videos</string>
+    <string name="spotify_canvas_web_login">Spotify Web login</string>
+    <string name="spotify_canvas_web_login_desc">Log in with Spotify in the WebView. Metroapple saves only the sp_dc cookie needed for Canvas lookup.</string>
+    <string name="spotify_canvas_cookie_title">Spotify cookie / sp_dc</string>
+    <string name="spotify_canvas_cookie_placeholder">Paste sp_dc=... or the raw sp_dc value</string>
+    <string name="spotify_canvas_cookie_helper">You can paste a full cookie header or just the sp_dc value. Metroapple stores only the sp_dc token.</string>
+    <string name="spotify_canvas_cookie_configured">Cookie configured</string>
+    <string name="spotify_canvas_cookie_not_configured">No Spotify cookie configured</string>
+    <string name="spotify_canvas_clear_cookie">Clear Spotify cookie</string>
+    <string name="spotify_canvas_cookie_saved">Spotify cookie saved. Canvas is enabled.</string>
+
     <string name="scrobbling_configuration">Scrobbling configuration</string>
     <string name="scrobble_min_track_duration">Scrobble songs longer than (seconds)</string>
     <string name="scrobble_delay_percent">Scrobble delay (percentage)</string>

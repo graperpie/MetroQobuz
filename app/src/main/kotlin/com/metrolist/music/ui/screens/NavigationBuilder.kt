@@ -61,6 +61,8 @@ import com.metrolist.music.ui.screens.settings.integrations.DiscordSettings
 import com.metrolist.music.ui.screens.settings.integrations.IntegrationScreen
 import com.metrolist.music.ui.screens.settings.integrations.LastFMSettings
 import com.metrolist.music.ui.screens.settings.integrations.ListenTogetherSettings
+import com.metrolist.music.ui.screens.settings.integrations.SpotifyCanvasLoginScreen
+import com.metrolist.music.ui.screens.settings.integrations.SpotifyCanvasSettings
 
 import com.metrolist.music.ui.screens.wrapped.WrappedScreen
 import com.metrolist.music.utils.rememberEnumPreference
@@ -397,6 +399,14 @@ fun NavGraphBuilder.navigationBuilder(
 
     composable("settings/integrations/lastfm") {
         LastFMSettings(navController)
+    }
+
+    composable("settings/integrations/spotify_canvas") {
+        SpotifyCanvasSettings(navController)
+    }
+
+    composable("settings/integrations/spotify_canvas/login") {
+        SpotifyCanvasLoginScreen(navController)
     }
 
     composable(route = "settings/integrations/listen_together") {
