@@ -26,9 +26,11 @@ object AppleMusicDecryptPipeline {
     private const val KEY_SUFFIX_DEFAULT = "c6"
     private const val DEFAULT_PREFETCH_WINDOW_SEGMENTS = 4
     private const val DEFAULT_PREFETCH_CONCURRENCY = 3
+    private const val DEFAULT_STARTUP_PREFETCH_WINDOW_SEGMENTS = 3
     private const val DEFAULT_STARTUP_READY_SEGMENTS = 0
     private const val HIGH_PREFETCH_WINDOW_SEGMENTS = 5
     private const val HIGH_PREFETCH_CONCURRENCY = 4
+    private const val HIGH_STARTUP_PREFETCH_WINDOW_SEGMENTS = 4
     private const val HIGH_STARTUP_READY_SEGMENTS = 0
     private const val MAX_ROLLING_CACHE_BYTES = 24 * 1024 * 1024
     private const val SEGMENT_SLOW_MS = 4_000L
@@ -154,6 +156,11 @@ object AppleMusicDecryptPipeline {
             decryptClient = decryptClient,
             startOffset = start.coerceAtLeast(0L),
             prefetchWindow = if (highWorkerMode) HIGH_PREFETCH_WINDOW_SEGMENTS else DEFAULT_PREFETCH_WINDOW_SEGMENTS,
+            startupPrefetchWindow = if (highWorkerMode) {
+                HIGH_STARTUP_PREFETCH_WINDOW_SEGMENTS
+            } else {
+                DEFAULT_STARTUP_PREFETCH_WINDOW_SEGMENTS
+            },
             prefetchConcurrency = if (highWorkerMode) HIGH_PREFETCH_CONCURRENCY else DEFAULT_PREFETCH_CONCURRENCY,
             startupReadySegments = if (highWorkerMode) HIGH_STARTUP_READY_SEGMENTS else DEFAULT_STARTUP_READY_SEGMENTS,
             trace = trace,
@@ -272,6 +279,7 @@ object AppleMusicDecryptPipeline {
         private val decryptClient: AppleMusicWrapperManagerProvider.SampleDecryptClient,
         private val startOffset: Long,
         private val prefetchWindow: Int,
+        private val startupPrefetchWindow: Int,
         prefetchConcurrency: Int,
         private val startupReadySegments: Int,
         private val trace: AlacTrace,
@@ -419,10 +427,10 @@ object AppleMusicDecryptPipeline {
         private fun schedulePrefetch() {
             if (segmentIndex >= playlist.segments.size || prefetchExecutor.isShutdown) return
             val window = if (!hasOpenedMediaSegment && segmentIndex == 0) {
-                1
+                startupPrefetchWindow
             } else {
                 prefetchWindow
-            }
+            }.coerceAtLeast(1)
             var index = segmentIndex
             var scheduled = 0
             while (index < playlist.segments.size && scheduled < window) {

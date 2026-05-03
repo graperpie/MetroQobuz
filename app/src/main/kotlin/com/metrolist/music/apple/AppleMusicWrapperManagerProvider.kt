@@ -7,7 +7,11 @@ import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.ByteArrayOutputStream
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 object AppleMusicWrapperManagerProvider {
     private const val DECRYPT_BATCH_SIZE = 96
@@ -20,6 +24,7 @@ object AppleMusicWrapperManagerProvider {
     private const val WRAPPER_CONNECT_TIMEOUT_SECONDS = 10L
     private const val WRAPPER_READ_TIMEOUT_SECONDS = 25L
     private const val WRAPPER_CALL_TIMEOUT_SECONDS = 30L
+    private const val DECRYPT_HEDGE_DELAY_MS = 1_800L
 
     enum class WrapperMode(
         val idSuffix: String,
@@ -95,6 +100,9 @@ object AppleMusicWrapperManagerProvider {
         .callTimeout(WRAPPER_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .build()
     private val defaultGrpcClients = GrpcClients(client, h2cGrpcClient)
+    private val decryptRaceExecutor = Executors.newCachedThreadPool { runnable ->
+        Thread(runnable, "AppleWrapperDecryptRace").apply { isDaemon = true }
+    }
 
     private data class GrpcClients(
         val https: OkHttpClient,
@@ -105,6 +113,12 @@ object AppleMusicWrapperManagerProvider {
             h2c.dispatcher.cancelAll()
         }
     }
+
+    private data class DecryptCandidateResult(
+        val host: String,
+        val samples: Map<Int, ByteArray>?,
+        val error: Throwable?,
+    )
 
     fun normalizeHost(raw: String?): String {
         return raw.orEmpty()
@@ -253,6 +267,17 @@ object AppleMusicWrapperManagerProvider {
         grpcClients: GrpcClients,
     ): Map<Int, ByteArray> {
         val candidates = buildInstanceCandidates(host, secure)
+        if (candidates.size > 1) {
+            return decryptSegmentWithHedgedInstances(
+                candidates = candidates,
+                mode = mode,
+                adamId = adamId,
+                key = key,
+                samples = samples,
+                grpcClients = grpcClients,
+            )
+        }
+
         val errors = mutableListOf<String>()
         candidates.forEach { (candidateHost, candidateSecure) ->
             runCatching {
@@ -274,6 +299,107 @@ object AppleMusicWrapperManagerProvider {
         throw WrapperManagerException(
             "wrapper-manager Decrypt failed on every instance: ${errors.joinToString("; ")}"
         )
+    }
+
+    private fun decryptSegmentWithHedgedInstances(
+        candidates: List<Pair<String, Boolean>>,
+        mode: WrapperMode,
+        adamId: String,
+        key: String,
+        samples: List<DecryptSample>,
+        grpcClients: GrpcClients,
+    ): Map<Int, ByteArray> {
+        val active = mutableListOf<CompletableFuture<DecryptCandidateResult>>()
+        val errors = mutableListOf<String>()
+        var nextCandidateIndex = 0
+
+        fun submitNextCandidate() {
+            val (candidateHost, candidateSecure) = candidates[nextCandidateIndex++]
+            active += CompletableFuture.supplyAsync(
+                {
+                    try {
+                        DecryptCandidateResult(
+                            host = candidateHost,
+                            samples = decryptSegmentOnInstance(
+                                host = candidateHost,
+                                secure = candidateSecure,
+                                mode = mode,
+                                adamId = adamId,
+                                key = key,
+                                samples = samples,
+                                grpcClients = grpcClients,
+                            ),
+                            error = null,
+                        )
+                    } catch (error: Throwable) {
+                        DecryptCandidateResult(
+                            host = candidateHost,
+                            samples = null,
+                            error = error,
+                        )
+                    }
+                },
+                decryptRaceExecutor,
+            )
+        }
+
+        submitNextCandidate()
+        while (active.isNotEmpty() || nextCandidateIndex < candidates.size) {
+            val completedFuture = awaitAnyDecryptCandidate(
+                active = active,
+                timeoutMs = if (nextCandidateIndex < candidates.size) {
+                    DECRYPT_HEDGE_DELAY_MS
+                } else {
+                    WRAPPER_CALL_TIMEOUT_SECONDS * 1000L
+                },
+            )
+            if (completedFuture == null) {
+                if (nextCandidateIndex < candidates.size) {
+                    submitNextCandidate()
+                    continue
+                }
+                break
+            }
+
+            active.remove(completedFuture)
+            val completed = completedFuture.getNow(null)
+            if (completed?.samples != null) {
+                active.forEach { it.cancel(true) }
+                return completed.samples
+            }
+
+            val error = completed?.error
+            errors += "${completed?.host ?: "unknown"}: ${error?.message ?: error?.javaClass?.simpleName ?: "unknown error"}"
+            if (active.isEmpty() && nextCandidateIndex < candidates.size) {
+                submitNextCandidate()
+            }
+        }
+
+        active.forEach { it.cancel(true) }
+        throw WrapperManagerException(
+            "wrapper-manager Decrypt failed on every instance: ${errors.joinToString("; ")}"
+        )
+    }
+
+    private fun awaitAnyDecryptCandidate(
+        active: List<CompletableFuture<DecryptCandidateResult>>,
+        timeoutMs: Long,
+    ): CompletableFuture<DecryptCandidateResult>? {
+        if (active.isEmpty()) return null
+        active.firstOrNull { it.isDone }?.let { return it }
+        val any = CompletableFuture.anyOf(*active.toTypedArray())
+        return try {
+            any.get(timeoutMs.coerceAtLeast(1L), TimeUnit.MILLISECONDS)
+            active.firstOrNull { it.isDone }
+        } catch (_: TimeoutException) {
+            null
+        } catch (error: InterruptedException) {
+            Thread.currentThread().interrupt()
+            throw WrapperManagerException("ALAC decrypt race was interrupted", error)
+        } catch (error: ExecutionException) {
+            active.firstOrNull { it.isDone }
+                ?: throw WrapperManagerException("ALAC decrypt race failed", error)
+        }
     }
 
     private class BatchSampleDecryptClient(
