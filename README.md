@@ -198,7 +198,7 @@
 
 <h1><a id="support-the-project"></a>Support the Project</h1>
 
-<h3>MetroApple is free and open-source. If it brings you joy, consider supporting the upstream Metrolist project too.</h3>
+<h3>MetroApple is free and open-source but mainly powered by the upstream Metrolist project Support all goes to them :D.</h3>
 
 <div align="center">
 
