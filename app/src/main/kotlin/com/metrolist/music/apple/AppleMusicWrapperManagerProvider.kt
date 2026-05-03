@@ -561,6 +561,7 @@ object AppleMusicWrapperManagerProvider {
     private fun DecryptSample.isUsableDecryptedSample(decrypted: ByteArray): Boolean {
         if (decrypted.isEmpty()) return false
         if (decrypted.size != data.size) return false
+        if (data.size >= MIN_UNDECRYPTED_COMPARE_BYTES && decrypted.contentEquals(data)) return false
         return true
     }
 

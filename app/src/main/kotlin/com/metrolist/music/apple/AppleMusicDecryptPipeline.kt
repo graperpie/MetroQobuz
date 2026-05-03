@@ -35,6 +35,7 @@ object AppleMusicDecryptPipeline {
     private const val MAX_ROLLING_CACHE_BYTES = 24 * 1024 * 1024
     private const val SEGMENT_SLOW_MS = 4_000L
     private const val SEGMENT_TIMEOUT_MS = 10_000L
+    private const val SEGMENT_INTEGRITY_RETRY_COUNT = 2
     private const val STARTUP_SLOW_MS = 8_000L
     private const val STARTUP_TIMEOUT_MS = 12_000L
     private const val TRACE_TAG = "AppleALAC"
@@ -44,6 +45,7 @@ object AppleMusicDecryptPipeline {
 
     class AlacStartupTimeoutException(message: String, cause: Throwable? = null) : IOException(message, cause)
     class AlacSegmentTimeoutException(message: String, cause: Throwable? = null) : IOException(message, cause)
+    class AlacSegmentIntegrityException(message: String, cause: Throwable? = null) : IOException(message, cause)
 
     fun isAlacStartupTimeout(error: Throwable?): Boolean {
         return isAlacTimeout(error)
@@ -452,7 +454,7 @@ object AppleMusicDecryptPipeline {
         private fun decryptSegment(index: Int, firstSample: Int): DecryptedSegment {
             ensureOpen()
             val encrypted = loadEncryptedSegment(index)
-            return decryptLoadedSegmentBytes(
+            return decryptLoadedSegmentBytesWithRetry(
                 client = client,
                 decryptClient = decryptClient,
                 adamId = adamId,
@@ -472,7 +474,7 @@ object AppleMusicDecryptPipeline {
                     ensureEncryptedSegment(targetIndex),
                     { firstSample, encrypted ->
                         ensureOpen()
-                        decryptLoadedSegmentBytes(
+                        decryptLoadedSegmentBytesWithRetry(
                             client = client,
                             decryptClient = decryptClient,
                             adamId = adamId,
@@ -895,7 +897,7 @@ object AppleMusicDecryptPipeline {
             parseFragmentSamples(encryptedBytes)
         }
         segmentSampleCountCache[segmentCacheKey(segment)] = samples.size
-        return decryptLoadedSegmentBytes(
+        return decryptLoadedSegmentBytesWithRetry(
             client = client,
             decryptClient = decryptClient,
             adamId = adamId,
@@ -906,6 +908,47 @@ object AppleMusicDecryptPipeline {
             segmentIndex = segmentIndex,
             firstSampleIndex = firstSampleIndex,
             trace = trace,
+        )
+    }
+
+    private fun decryptLoadedSegmentBytesWithRetry(
+        client: OkHttpClient,
+        decryptClient: AppleMusicWrapperManagerProvider.SampleDecryptClient,
+        adamId: String,
+        playlist: MediaPlaylist,
+        segment: MediaSegment,
+        encryptedBytes: ByteArray,
+        samples: List<SampleRange>,
+        segmentIndex: Int,
+        firstSampleIndex: Int,
+        trace: AlacTrace,
+    ): DecryptedSegment {
+        var lastError: Throwable? = null
+        repeat(SEGMENT_INTEGRITY_RETRY_COUNT + 1) { attempt ->
+            try {
+                return decryptLoadedSegmentBytes(
+                    client = client,
+                    decryptClient = decryptClient,
+                    adamId = adamId,
+                    playlist = playlist,
+                    segment = segment,
+                    encryptedBytes = encryptedBytes,
+                    samples = samples,
+                    segmentIndex = segmentIndex,
+                    firstSampleIndex = firstSampleIndex,
+                    trace = trace,
+                )
+            } catch (error: AlacSegmentIntegrityException) {
+                lastError = error
+                trace.mark(
+                    "segment_${segmentIndex}_integrity_retry",
+                    "attempt=${attempt + 1} error=${error.message.orEmpty().take(140)}"
+                )
+            }
+        }
+        throw AlacSegmentIntegrityException(
+            "ALAC segment $segmentIndex failed integrity validation after retries",
+            lastError,
         )
     }
 
@@ -922,6 +965,7 @@ object AppleMusicDecryptPipeline {
         firstSampleIndex: Int,
         trace: AlacTrace,
     ): DecryptedSegment {
+        validateEncryptedFragment(encryptedBytes, samples, segmentIndex)
         if (samples.isEmpty()) {
             return DecryptedSegment(encryptedBytes, 0, firstSampleIndex)
         }
@@ -982,6 +1026,7 @@ object AppleMusicDecryptPipeline {
         }
 
         stripFragmentEncryptionBoxes(output)
+        validateDecryptedFragment(output, samples.size, segmentIndex)
         trace.mark("segment_${segmentIndex}_ready", "samples=${samples.size}")
         return DecryptedSegment(output, samples.size, firstSampleIndex)
     }
@@ -1202,13 +1247,128 @@ object AppleMusicDecryptPipeline {
         }
 
         samples.forEach { sample ->
-            if (sample.offset < 0 || sample.size <= 0 || sample.offset + sample.size > data.size) {
+            if (
+                sample.offset < mdat.payloadStart ||
+                sample.size <= 0 ||
+                sample.offset + sample.size > mdat.end
+            ) {
                 throw AppleMusicWrapperManagerProvider.WrapperManagerException(
-                    "ALAC fMP4 sample range was invalid"
+                    "ALAC fMP4 sample range was outside mdat"
                 )
             }
         }
         return samples
+    }
+
+    private fun validateEncryptedFragment(
+        data: ByteArray,
+        samples: List<SampleRange>,
+        segmentIndex: Int,
+    ) {
+        validateTopLevelBoxLayout(data, "encrypted segment $segmentIndex")
+        val parsedSamples = try {
+            parseFragmentSamples(data)
+        } catch (error: AppleMusicWrapperManagerProvider.WrapperManagerException) {
+            throw AlacSegmentIntegrityException(
+                "ALAC encrypted segment $segmentIndex container validation failed: ${error.message}",
+                error,
+            )
+        }
+        if (parsedSamples.size != samples.size) {
+            throw AlacSegmentIntegrityException(
+                "ALAC encrypted segment $segmentIndex sample count changed during validation"
+            )
+        }
+    }
+
+    private fun validateDecryptedFragment(
+        data: ByteArray,
+        expectedSamples: Int,
+        segmentIndex: Int,
+    ) {
+        validateTopLevelBoxLayout(data, "decrypted segment $segmentIndex")
+        val parsedSamples = try {
+            parseFragmentSamples(data)
+        } catch (error: AppleMusicWrapperManagerProvider.WrapperManagerException) {
+            throw AlacSegmentIntegrityException(
+                "ALAC decrypted segment $segmentIndex container validation failed: ${error.message}",
+                error,
+            )
+        }
+        if (parsedSamples.size != expectedSamples) {
+            throw AlacSegmentIntegrityException(
+                "ALAC decrypted segment $segmentIndex sample count mismatch expected=$expectedSamples actual=${parsedSamples.size}"
+            )
+        }
+        if (data.hasFragmentEncryptionBoxes()) {
+            throw AlacSegmentIntegrityException("ALAC decrypted segment $segmentIndex still contains encryption boxes")
+        }
+    }
+
+    private fun validateTopLevelBoxLayout(data: ByteArray, label: String) {
+        if (data.isEmpty()) {
+            throw AlacSegmentIntegrityException("ALAC $label was empty")
+        }
+        var pos = 0
+        var sawMoof = false
+        var sawMdat = false
+        while (pos < data.size) {
+            val box = readRequiredBox(data, pos, data.size, label)
+            if (!box.type.isPrintableMp4Type()) {
+                throw AlacSegmentIntegrityException("ALAC $label had invalid atom type at offset $pos")
+            }
+            when (box.type) {
+                "moof" -> sawMoof = true
+                "mdat" -> sawMdat = true
+            }
+            if (box.type in containerBoxes) {
+                validateChildBoxLayout(data, box.payloadStart, box.end, "$label/${box.type}")
+            }
+            pos = box.end
+        }
+        if (pos != data.size) {
+            throw AlacSegmentIntegrityException("ALAC $label had trailing malformed bytes")
+        }
+        if (label.contains("segment") && (!sawMoof || !sawMdat)) {
+            throw AlacSegmentIntegrityException("ALAC $label did not contain moof+mdat")
+        }
+    }
+
+    private fun validateChildBoxLayout(data: ByteArray, start: Int, end: Int, label: String) {
+        var pos = start
+        while (pos < end) {
+            val box = readRequiredBox(data, pos, end, label)
+            if (!box.type.isPrintableMp4Type()) {
+                throw AlacSegmentIntegrityException("ALAC $label had invalid atom type at offset $pos")
+            }
+            if (box.type in containerBoxes) {
+                validateChildBoxLayout(data, box.payloadStart, box.end, "$label/${box.type}")
+            }
+            pos = box.end
+        }
+        if (pos != end) {
+            throw AlacSegmentIntegrityException("ALAC $label had trailing malformed child bytes")
+        }
+    }
+
+    private fun ByteArray.hasFragmentEncryptionBoxes(): Boolean {
+        var found = false
+        fun visit(start: Int, end: Int) {
+            var pos = start
+            while (pos < end && !found) {
+                val box = readBox(this, pos, end) ?: return
+                if (box.type in fragmentEncryptionBoxes) {
+                    found = true
+                    return
+                }
+                if (box.type in containerBoxes) {
+                    visit(box.payloadStart, box.end)
+                }
+                pos = box.end
+            }
+        }
+        visit(0, size)
+        return found
     }
 
     private fun parseTfhd(data: ByteArray, box: Mp4Box): TfhdInfo {
@@ -1762,6 +1922,45 @@ object AppleMusicDecryptPipeline {
         val end = start + boxSize.toInt()
         if (end <= start || end > limit) return null
         return Mp4Box(type = type, start = start, headerSize = headerSize, end = end)
+    }
+
+    private fun readRequiredBox(data: ByteArray, start: Int, limit: Int, label: String): Mp4Box {
+        if (start + 8 > limit) {
+            throw AlacSegmentIntegrityException("ALAC $label had an incomplete atom header at offset $start")
+        }
+        val size32 = readUInt32(data, start)
+        val type = data.copyOfRange(start + 4, start + 8).toString(Charsets.ISO_8859_1)
+        var headerSize = 8
+        val boxSize = when (size32) {
+            0L -> (limit - start).toLong()
+            1L -> {
+                if (start + 16 > limit) {
+                    throw AlacSegmentIntegrityException("ALAC $label had an incomplete large-size atom header at offset $start")
+                }
+                headerSize = 16
+                readUInt64(data, start + 8)
+            }
+            else -> size32
+        }
+        if (boxSize > Int.MAX_VALUE) {
+            throw AlacSegmentIntegrityException(
+                "ALAC $label had unsupported atom length $boxSize for $type at offset $start"
+            )
+        }
+        if (boxSize < headerSize) {
+            throw AlacSegmentIntegrityException("ALAC $label had invalid atom length $boxSize for $type at offset $start")
+        }
+        val end = start + boxSize.toInt()
+        if (end <= start || end > limit) {
+            throw AlacSegmentIntegrityException(
+                "ALAC $label atom $type at offset $start overran fragment bounds"
+            )
+        }
+        return Mp4Box(type = type, start = start, headerSize = headerSize, end = end)
+    }
+
+    private fun String.isPrintableMp4Type(): Boolean {
+        return length == 4 && all { it.code in 0x20..0x7e }
     }
 
     private fun downloadText(client: OkHttpClient, url: String): String {
