@@ -2,9 +2,9 @@
 
 <img src="https://github.com/MetrolistGroup/Metrolist/blob/main/fastlane/metadata/android/en-US/images/icon.png" alt="Metrolist app icon" width="200" />
 
-# Metrolist
+# MetroApple
 
-### YouTube Music client for Android
+### YouTube Music client With a twist and stuff ig for Android
 
 <br/>
 
@@ -28,7 +28,8 @@
 </div>
 
 > [!WARNING]
-> Regional Restriction - If YouTube Music is unavailable in your region, this app will not work without a **VPN or proxy** connecting to a supported region.
+> Regional Restriction - If YouTube Music is unavailable in your region, this app will not work without a **VPN or proxy** connecting to a supported region
+> Apple music audio is slow to load if u want a faster experiance use Qobuz provider or Youtube (soon!?!)
 
 ---
 
@@ -56,7 +57,7 @@
     <td width="50%" valign="top">
 
 ### Playback
-- Stream any song or video from YouTube Music
+- Stream any song or video from Qobuz Apple Music or Youtube music
 - Background playback
 - Download & cache for offline use
 - Skip silence
