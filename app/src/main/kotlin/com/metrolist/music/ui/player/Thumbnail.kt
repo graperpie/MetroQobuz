@@ -219,7 +219,6 @@ fun Thumbnail(
     val queueTitle by playerConnection.queueTitle.collectAsStateWithLifecycle()
     val canSkipPrevious by playerConnection.canSkipPrevious.collectAsStateWithLifecycle()
     val canSkipNext by playerConnection.canSkipNext.collectAsStateWithLifecycle()
-    val appleCanvasUrl by playerConnection.service.currentAppleCanvasUrl.collectAsStateWithLifecycle()
 
     // Preferences - computed once
     // Disable swipe for Listen Together guests
@@ -411,7 +410,6 @@ fun Thumbnail(
                                 isListenTogetherGuest = isListenTogetherGuest,
                                 currentMediaId = mediaMetadata?.id,
                                 currentMediaThumbnail = mediaMetadata?.thumbnailUrl,
-                                currentAppleCanvasUrl = appleCanvasUrl,
                             )
                         }
                     }
@@ -509,7 +507,6 @@ private fun ThumbnailItem(
     isListenTogetherGuest: Boolean = false,
     currentMediaId: String? = null,
     currentMediaThumbnail: String? = null,
-    currentAppleCanvasUrl: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val incrementalSeekSkipEnabled by rememberPreference(SeekExtraSeconds, defaultValue = false)
@@ -579,17 +576,10 @@ private fun ThumbnailItem(
                     item.mediaMetadata.artworkUri?.toString()
                 }
 
-                if (item.mediaId == currentMediaId && !currentAppleCanvasUrl.isNullOrBlank()) {
-                    AppleMusicCanvasVideo(
-                        canvasUrl = currentAppleCanvasUrl,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                } else {
-                    ThumbnailImage(
-                        artworkUri = artworkUriToUse,
-                        cropArtwork = cropAlbumArt
-                    )
-                }
+                ThumbnailImage(
+                    artworkUri = artworkUriToUse,
+                    cropArtwork = cropAlbumArt
+                )
             }
             
             // Cast button at top-right corner of thumbnail
@@ -658,52 +648,7 @@ private fun ThumbnailImage(
     }
 }
 
-@Composable
-private fun AppleMusicCanvasVideo(
-    canvasUrl: String,
-    modifier: Modifier = Modifier,
-) {
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val textureView = remember {
-        TextureView(context).apply {
-            isOpaque = false
-            isClickable = false
-            isFocusable = false
-        }
-    }
-    val player = remember(canvasUrl) {
-        ExoPlayer.Builder(context).build().apply {
-            repeatMode = Player.REPEAT_MODE_ONE
-            volume = 0f
-            playWhenReady = true
-            setVideoTextureView(textureView)
-            setMediaItem(MediaItem.fromUri(canvasUrl))
-            prepare()
-        }
-    }
 
-    DisposableEffect(player, lifecycleOwner, textureView) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_RESUME -> player.play()
-                Lifecycle.Event.ON_PAUSE -> player.pause()
-                else -> Unit
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-            player.clearVideoTextureView(textureView)
-            player.release()
-        }
-    }
-
-    AndroidView(
-        factory = { textureView },
-        modifier = modifier,
-    )
-}
 
 /**
  * Seek effect overlay showing seek direction.

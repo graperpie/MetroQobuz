@@ -18,7 +18,7 @@ if (localPropertiesFile.exists()) {
     localProperties.load(localPropertiesFile.inputStream())
 }
 
-val baseApplicationId = "com.metroapple.music"
+val baseApplicationId = "com.metroqobuz.music"
 val applicationIdOverride = System.getenv("METROLIST_APPLICATION_ID")?.takeIf { it.isNotBlank() }
 val appNameOverride = System.getenv("METROLIST_APP_NAME")?.takeIf { it.isNotBlank() }
 val debugKeystorePathOverride = System.getenv("METROLIST_DEBUG_KEYSTORE_PATH")?.takeIf { it.isNotBlank() }
@@ -96,7 +96,7 @@ android {
         targetSdk = 36
         versionCode = 146
         versionName = "13.4.2"
-        resValue("string", "app_name", appNameOverride ?: "MetroApple")
+        resValue("string", "app_name", appNameOverride ?: "MetroQobuz")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -164,6 +164,7 @@ android {
 
     buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             isCrunchPngs = false
@@ -179,7 +180,7 @@ android {
             }
             isDebuggable = true
             if (appNameOverride == null) {
-                resValue("string", "app_name", "MetroApple")
+                resValue("string", "app_name", "MetroQobuz")
             }
             signingConfig =
                 if (workflowDebugKeystoreFile != null) {

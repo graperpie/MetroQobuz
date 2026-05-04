@@ -59,11 +59,9 @@ import com.metrolist.music.constants.PauseOnMute
 import com.metrolist.music.constants.PersistentQueueKey
 import com.metrolist.music.constants.PersistentShuffleAcrossQueuesKey
 import com.metrolist.music.constants.PreventDuplicateTracksInQueueKey
-import com.metrolist.music.constants.PreferQobuzKey
 import com.metrolist.music.constants.QobuzBackend
 import com.metrolist.music.constants.QobuzBackendKey
 import com.metrolist.music.constants.QobuzCountryKey
-import com.metrolist.music.constants.QobuzFallbackEnabledKey
 import com.metrolist.music.constants.RememberShuffleAndRepeatKey
 import com.metrolist.music.constants.ResumeOnBluetoothConnectKey
 import com.metrolist.music.constants.SeekExtraSeconds
@@ -134,14 +132,7 @@ fun PlayerSettings(
         AudioNormalizationKey,
         defaultValue = true
     )
-    val (qobuzFallbackEnabled, onQobuzFallbackEnabledChange) = rememberPreference(
-        QobuzFallbackEnabledKey,
-        defaultValue = true
-    )
-    val (preferQobuz, onPreferQobuzChange) = rememberPreference(
-        PreferQobuzKey,
-        defaultValue = false
-    )
+
     val (qobuzBackend, onQobuzBackendChange) = rememberEnumPreference(
         QobuzBackendKey,
         defaultValue = QobuzBackend.JUMO
@@ -378,68 +369,24 @@ fun PlayerSettings(
                     onClick = { showAudioQualityDialog = true }
                 ))
                 add(Material3SettingsItem(
-                    icon = painterResource(R.drawable.cloud),
-                    title = { Text(stringResource(R.string.qobuz_fallback)) },
-                    description = { Text(stringResource(R.string.qobuz_fallback_desc)) },
-                    trailingContent = {
-                        Switch(
-                            checked = qobuzFallbackEnabled,
-                            onCheckedChange = onQobuzFallbackEnabledChange,
-                            thumbContent = {
-                                Icon(
-                                    painter = painterResource(
-                                        id = if (qobuzFallbackEnabled) R.drawable.check else R.drawable.close
-                                    ),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(SwitchDefaults.IconSize)
-                                )
+                    icon = painterResource(R.drawable.settings),
+                    title = { Text(stringResource(R.string.qobuz_backend)) },
+                    description = {
+                        Text(
+                            when (qobuzBackend) {
+                                QobuzBackend.JUMO -> stringResource(R.string.qobuz_backend_jumo)
+                                QobuzBackend.SQUID -> stringResource(R.string.qobuz_backend_squid)
                             }
                         )
                     },
-                    onClick = { onQobuzFallbackEnabledChange(!qobuzFallbackEnabled) }
+                    onClick = { showQobuzBackendDialog = true }
                 ))
-                if (qobuzFallbackEnabled) {
-                    add(Material3SettingsItem(
-                        icon = painterResource(R.drawable.library_music),
-                        title = { Text(stringResource(R.string.prefer_qobuz)) },
-                        description = { Text(stringResource(R.string.prefer_qobuz_desc)) },
-                        trailingContent = {
-                            Switch(
-                                checked = preferQobuz,
-                                onCheckedChange = onPreferQobuzChange,
-                                thumbContent = {
-                                    Icon(
-                                        painter = painterResource(
-                                            id = if (preferQobuz) R.drawable.check else R.drawable.close
-                                        ),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(SwitchDefaults.IconSize)
-                                    )
-                                }
-                            )
-                        },
-                        onClick = { onPreferQobuzChange(!preferQobuz) }
-                    ))
-                    add(Material3SettingsItem(
-                        icon = painterResource(R.drawable.settings),
-                        title = { Text(stringResource(R.string.qobuz_backend)) },
-                        description = {
-                            Text(
-                                when (qobuzBackend) {
-                                    QobuzBackend.JUMO -> stringResource(R.string.qobuz_backend_jumo)
-                                    QobuzBackend.SQUID -> stringResource(R.string.qobuz_backend_squid)
-                                }
-                            )
-                        },
-                        onClick = { showQobuzBackendDialog = true }
-                    ))
-                    add(Material3SettingsItem(
-                        icon = painterResource(R.drawable.language),
-                        title = { Text(stringResource(R.string.qobuz_country)) },
-                        description = { Text(stringResource(R.string.qobuz_country_desc, qobuzCountry.uppercase(Locale.US))) },
-                        onClick = { showQobuzCountryDialog = true }
-                    ))
-                }
+                add(Material3SettingsItem(
+                    icon = painterResource(R.drawable.language),
+                    title = { Text(stringResource(R.string.qobuz_country)) },
+                    description = { Text(stringResource(R.string.qobuz_country_desc, qobuzCountry.uppercase(Locale.US))) },
+                    onClick = { showQobuzCountryDialog = true }
+                ))
                 add(Material3SettingsItem(
                     icon = painterResource(R.drawable.linear_scale),
                     title = { Text(stringResource(R.string.crossfade)) },

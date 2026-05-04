@@ -15,14 +15,9 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadNotificationHelper
-import com.metrolist.music.apple.AppleMusicAwareDataSourceFactory
-import com.metrolist.music.apple.AppleMusicSongResolver
-import com.metrolist.music.apple.AppleMusicWrapperDataSource
 import com.metrolist.music.constants.QobuzBackend
 import com.metrolist.music.constants.QobuzBackendKey
 import com.metrolist.music.constants.QobuzCountryKey
-import com.metrolist.music.constants.QobuzFallbackEnabledKey
-import com.metrolist.music.constants.PreferQobuzKey
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.db.entities.FormatEntity
 import com.metrolist.music.db.entities.Song
@@ -86,44 +81,35 @@ constructor(
 
     private val dataSourceFactory =
         ResolvingDataSource.Factory(
-            AppleMusicAwareDataSourceFactory(
-                CacheDataSource
-                    .Factory()
-                    .setCache(playerCache)
-                    .setUpstreamDataSourceFactory(
-                        OkHttpDataSource.Factory(
-                            OkHttpClient
-                                .Builder()
-                                .addInterceptor { chain ->
-                                    var request = chain.request()
-                                    if (request.url.queryParameter(YouTubeAudioProvider.STREAM_MARKER_QUERY) != null) {
-                                        val clientName = request.url.queryParameter(YouTubeAudioProvider.STREAM_MARKER_QUERY)
-                                        val cleanUrl =
-                                            request.url
-                                                .newBuilder()
-                                                .removeAllQueryParameters(YouTubeAudioProvider.STREAM_MARKER_QUERY)
-                                                .build()
-                                        request =
-                                            YouTubeAudioProvider.addYouTubePlaybackHeaders(
-                                                request.newBuilder().url(cleanUrl),
-                                                clientName,
-                                                request.header("Range") != null,
-                                            ).build()
-                                    }
-                                    chain.proceed(request)
-                                }.build(),
-                        ),
+            CacheDataSource
+                .Factory()
+                .setCache(playerCache)
+                .setUpstreamDataSourceFactory(
+                    OkHttpDataSource.Factory(
+                        OkHttpClient
+                            .Builder()
+                            .addInterceptor { chain ->
+                                var request = chain.request()
+                                if (request.url.queryParameter(YouTubeAudioProvider.STREAM_MARKER_QUERY) != null) {
+                                    val clientName = request.url.queryParameter(YouTubeAudioProvider.STREAM_MARKER_QUERY)
+                                    val cleanUrl =
+                                        request.url
+                                            .newBuilder()
+                                            .removeAllQueryParameters(YouTubeAudioProvider.STREAM_MARKER_QUERY)
+                                            .build()
+                                    request =
+                                        YouTubeAudioProvider.addYouTubePlaybackHeaders(
+                                            request.newBuilder().url(cleanUrl),
+                                            clientName,
+                                            request.header("Range") != null,
+                                        ).build()
+                                }
+                                chain.proceed(request)
+                            }.build(),
                     ),
-            ),
+                ),
         ) { dataSpec ->
             val mediaId = dataSpec.key?.let(::mediaIdFromDataSpecKey) ?: error("No media id")
-
-            if (AppleMusicWrapperDataSource.isAppleUri(dataSpec.uri)) {
-                return@Factory dataSpec
-                    .buildUpon()
-                    .setKey(appleWrapperCacheKey(mediaId))
-                    .build()
-            }
 
             val song = database.getSongByIdBlocking(mediaId)
             if (song?.song?.isLocal == true || song?.song?.isEpisode == true) {
@@ -168,85 +154,19 @@ constructor(
         mediaId: String,
         song: Song?,
     ): DownloadStreamResolution {
-        val qobuzEnabled = context.dataStore.get(QobuzFallbackEnabledKey, true)
-        if (qobuzEnabled && context.dataStore.get(PreferQobuzKey, false)) {
-            val qobuzAttempt = runCatching {
-                QobuzAudioProvider.resolve(buildQobuzQuery(context, mediaId, song))
-            }
-            qobuzAttempt.getOrNull()?.let { resolved ->
-                return DownloadStreamResolution(
-                    uri = resolved.mediaUri,
-                    expiresAtMs = resolved.expiresAtMs,
-                    cacheKey = qobuzFallbackCacheKey(mediaId),
-                    format = qobuzFallbackFormat(mediaId, resolved),
-                )
-            }
-
-            val qobuzError = qobuzAttempt.exceptionOrNull() ?: IllegalStateException("Qobuz preferred stream failed")
-            val appleAttempt = runCatching {
-                AppleMusicSongResolver.resolve(buildAppleMusicQuery(mediaId, song))
-            }
-            appleAttempt.getOrNull()?.let { resolved ->
-                return DownloadStreamResolution(
-                    uri = resolved.mediaUri,
-                    expiresAtMs = resolved.expiresAtMs,
-                    cacheKey = appleWrapperCacheKey(mediaId),
-                    format = appleWrapperFormat(mediaId, resolved.bitrate, resolved.sampleRate),
-                )
-            }
-
-            val appleError = appleAttempt.exceptionOrNull() ?: IllegalStateException("Apple Music failed")
-            val youtubeAttempt = runCatching {
-                resolveYouTubeFallback(mediaId)
-            }
-            youtubeAttempt.getOrNull()?.let { return it }
-
-            val youtubeError = youtubeAttempt.exceptionOrNull() ?: IllegalStateException("YouTube fallback failed")
-            throw QobuzAudioProvider.QobuzResolutionException(
-                "Qobuz failed: ${qobuzError.message ?: qobuzError.javaClass.simpleName}; Apple Music failed: ${appleError.message ?: appleError.javaClass.simpleName}; YouTube failed: ${youtubeError.message ?: youtubeError.javaClass.simpleName}",
-                youtubeError,
-            )
+        val qobuzAttempt = runCatching {
+            QobuzAudioProvider.resolve(buildQobuzQuery(context, mediaId, song))
         }
-
-        val appleAttempt = runCatching {
-            AppleMusicSongResolver.resolve(buildAppleMusicQuery(mediaId, song))
-        }
-        appleAttempt.getOrNull()?.let { resolved ->
+        qobuzAttempt.getOrNull()?.let { resolved ->
             return DownloadStreamResolution(
                 uri = resolved.mediaUri,
                 expiresAtMs = resolved.expiresAtMs,
-                cacheKey = appleWrapperCacheKey(mediaId),
-                format = appleWrapperFormat(mediaId, resolved.bitrate, resolved.sampleRate),
+                cacheKey = qobuzFallbackCacheKey(mediaId),
+                format = qobuzFallbackFormat(mediaId, resolved),
             )
         }
 
-        val appleError = appleAttempt.exceptionOrNull() ?: IllegalStateException("Apple Music failed")
-        if (qobuzEnabled) {
-            val qobuzAttempt = runCatching {
-                QobuzAudioProvider.resolve(buildQobuzQuery(context, mediaId, song))
-            }
-            qobuzAttempt.getOrNull()?.let { resolved ->
-                return DownloadStreamResolution(
-                    uri = resolved.mediaUri,
-                    expiresAtMs = resolved.expiresAtMs,
-                    cacheKey = qobuzFallbackCacheKey(mediaId),
-                    format = qobuzFallbackFormat(mediaId, resolved),
-                )
-            }
-
-            val qobuzError = qobuzAttempt.exceptionOrNull() ?: IllegalStateException("Qobuz fallback failed")
-            val youtubeAttempt = runCatching {
-                resolveYouTubeFallback(mediaId)
-            }
-            youtubeAttempt.getOrNull()?.let { return it }
-
-            val youtubeError = youtubeAttempt.exceptionOrNull() ?: IllegalStateException("YouTube fallback failed")
-            throw QobuzAudioProvider.QobuzResolutionException(
-                "Apple Music failed: ${appleError.message ?: appleError.javaClass.simpleName}; Qobuz fallback failed: ${qobuzError.message ?: qobuzError.javaClass.simpleName}; YouTube failed: ${youtubeError.message ?: youtubeError.javaClass.simpleName}",
-                youtubeError,
-            )
-        }
-
+        val qobuzError = qobuzAttempt.exceptionOrNull() ?: IllegalStateException("Qobuz failed")
         val youtubeAttempt = runCatching {
             resolveYouTubeFallback(mediaId)
         }
@@ -254,7 +174,7 @@ constructor(
 
         val youtubeError = youtubeAttempt.exceptionOrNull() ?: IllegalStateException("YouTube fallback failed")
         throw QobuzAudioProvider.QobuzResolutionException(
-            "Apple Music failed: ${appleError.message ?: appleError.javaClass.simpleName}; YouTube failed: ${youtubeError.message ?: youtubeError.javaClass.simpleName}",
+            "Qobuz failed: ${qobuzError.message ?: qobuzError.javaClass.simpleName}; YouTube failed: ${youtubeError.message ?: youtubeError.javaClass.simpleName}",
             youtubeError,
         )
     }
@@ -269,23 +189,6 @@ constructor(
             expiresAtMs = resolved.expiresAtMs,
             cacheKey = youtubeFallbackCacheKey(mediaId),
             format = youtubeFallbackFormat(mediaId, resolved),
-        )
-    }
-
-    private fun buildAppleMusicQuery(
-        mediaId: String,
-        song: Song?,
-    ): AppleMusicSongResolver.Query {
-        return AppleMusicSongResolver.Query(
-            mediaId = mediaId,
-            title = song?.song?.title ?: mediaId,
-            artists = song?.orderedArtists?.map { it.name }.orEmpty(),
-            album = song?.song?.albumName ?: song?.album?.title,
-            durationMs = song?.song?.duration
-                ?.takeIf { it > 0 }
-                ?.toLong()
-                ?.times(1000L),
-            explicit = song?.song?.explicit,
         )
     }
 
@@ -399,39 +302,17 @@ constructor(
     }
 
     private companion object {
-        private const val APPLE_MUSIC_WRAPPER_ITAG = 100_001
         private const val QOBUZ_FALLBACK_ITAG = 100_027
-        private const val APPLE_WRAPPER_CACHE_PREFIX = "apple-wrapper-alac:"
-        private const val QOBUZ_FALLBACK_CACHE_PREFIX = "qobuz-fallback:"
+        private const val QOBUZ_FALLBACK_CACHE_PREFIX = "qobuz-stream:"
         private const val YOUTUBE_FALLBACK_CACHE_PREFIX = "youtube-fallback-aac:"
-
-        private fun appleWrapperCacheKey(mediaId: String) = "$APPLE_WRAPPER_CACHE_PREFIX$mediaId"
 
         private fun qobuzFallbackCacheKey(mediaId: String) = "$QOBUZ_FALLBACK_CACHE_PREFIX$mediaId"
 
         private fun youtubeFallbackCacheKey(mediaId: String) = "$YOUTUBE_FALLBACK_CACHE_PREFIX$mediaId"
 
         private fun mediaIdFromDataSpecKey(key: String) = key
-            .removePrefix(APPLE_WRAPPER_CACHE_PREFIX)
             .removePrefix(QOBUZ_FALLBACK_CACHE_PREFIX)
             .removePrefix(YOUTUBE_FALLBACK_CACHE_PREFIX)
-
-        private fun appleWrapperFormat(
-            mediaId: String,
-            bitrate: Int = 0,
-            sampleRate: Int? = null,
-        ) = FormatEntity(
-            id = mediaId,
-            itag = APPLE_MUSIC_WRAPPER_ITAG,
-            mimeType = "audio/mp4",
-            codecs = "alac",
-            bitrate = bitrate,
-            sampleRate = sampleRate,
-            contentLength = 0L,
-            loudnessDb = null,
-            perceptualLoudnessDb = null,
-            playbackUrl = null,
-        )
 
         private fun qobuzFallbackFormat(
             mediaId: String,

@@ -32,6 +32,6 @@ class MusicAlarmReceiver : BroadcastReceiver() {
     }
 
     companion object {
-        const val ACTION_TRIGGER_ALARM = "com.metroapple.music.action.TRIGGER_ALARM"
+        const val ACTION_TRIGGER_ALARM = "com.metrolist.music.action.TRIGGER_ALARM"
     }
 }
