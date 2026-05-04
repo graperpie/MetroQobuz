@@ -1,8 +1,7 @@
 # MetroQobuz
 
 Qobuz backend replacement for Metrolist
-### NOTE: do *NOT* ask for help/support from the main developers regarding this fork. most issues caused by this fork is likely my fault. for support please ping me in the metrolist discord server or add me directly
-at @graperpie.
+### NOTE: do *NOT* ask for help/support from the main developers regarding this fork. most issues caused by this fork is likely my fault. for support please ping me in the metrolist discord server or add me directly at @graperpie.
 ---
 
 ## Features
