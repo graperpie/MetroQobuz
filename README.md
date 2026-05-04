@@ -1,7 +1,8 @@
 # MetroQobuz
 
 Qobuz backend replacement for Metrolist
-
+### NOTE: do *NOT* ask for help/support from the main developers regarding this fork. most issues caused by this fork is likely my fault. for support please ping me in the metrolist discord server or add me directly
+at @graperpie.
 ---
 
 ## Features
@@ -16,9 +17,10 @@ Qobuz backend replacement for Metrolist
 ## Known Issues
 - Occasional ExoPlayer crashes (i dont know why lol)
 - Caching does not work (afaik)
-- amazingly, that’s it
+- amazingly, that’s it for now
 
 ---
 
 ## Credits
 - 956tris for developing the initial framework, and for the Apple Music animated artwork in his [MetroApple](https://github.com/956tris/MetroApple) fork
+- the Metrolist team for creating this wonderful app
