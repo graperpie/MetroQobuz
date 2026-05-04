@@ -114,3 +114,11 @@
 </table>
 
 </div>
+
+---
+
+<div align="center">
+
+<h1><a id="credits"></a>Credits</h1>
+
+- 956tris for developing the initial framework in his [MetroApple](https://github.com/956tris/MetroApple)
