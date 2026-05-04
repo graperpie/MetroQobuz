@@ -66,6 +66,7 @@ constructor(
         val uri: String,
         val expiresAtMs: Long,
         val cacheKey: String,
+        val selectionKey: String,
     )
 
     private data class DownloadStreamResolution(
@@ -112,13 +113,17 @@ constructor(
                 ),
         ) { dataSpec ->
             val mediaId = dataSpec.key?.let(::mediaIdFromDataSpecKey) ?: error("No media id")
+            val streamSelectionKey = currentQobuzSelectionKey(context)
 
             val song = database.getSongByIdBlocking(mediaId)
             if (song?.song?.isLocal == true || song?.song?.isEpisode == true) {
                 return@Factory dataSpec
             }
 
-            songUrlCache[mediaId]?.takeIf { it.expiresAtMs > System.currentTimeMillis() }?.let { cached ->
+            songUrlCache[mediaId]?.takeIf {
+                it.expiresAtMs > System.currentTimeMillis() &&
+                    it.selectionKey == streamSelectionKey
+            }?.let { cached ->
                 return@Factory dataSpec
                     .buildUpon()
                     .setUri(cached.uri.toUri())
@@ -143,6 +148,7 @@ constructor(
                 uri = resolved.uri,
                 expiresAtMs = resolved.expiresAtMs,
                 cacheKey = resolved.cacheKey,
+                selectionKey = streamSelectionKey,
             )
             dataSpec
                 .buildUpon()
@@ -151,13 +157,29 @@ constructor(
                 .build()
         }
 
+    private fun currentQobuzSelectionKey(context: Context): String {
+        val backend = context.dataStore.get(QobuzBackendKey).toEnum(QobuzBackend.JUMO)
+        val audioQuality = context.dataStore.get(AudioQualityKey).toEnum(AudioQuality.HI_RES_LOSSLESS)
+        val country = context.dataStore.get(QobuzCountryKey, "US")
+            .trim()
+            .uppercase(Locale.US)
+            .takeIf { it.matches(Regex("[A-Z]{2}")) }
+            ?: "US"
+        return listOf(
+            "backend=${backend.name}",
+            "country=$country",
+            "quality=${QobuzAudioProvider.qualityCodeFor(audioQuality)}",
+        ).joinToString(";")
+    }
+
     private suspend fun resolveDownloadStream(
         context: Context,
         mediaId: String,
         song: Song?,
     ): DownloadStreamResolution {
+        val qobuzQuery = buildQobuzQuery(context, mediaId, song)
         val qobuzAttempt = runCatching {
-            QobuzAudioProvider.resolve(buildQobuzQuery(context, mediaId, song))
+            QobuzAudioProvider.resolve(qobuzQuery)
         }
         qobuzAttempt.getOrNull()?.let { resolved ->
             return DownloadStreamResolution(
@@ -169,6 +191,14 @@ constructor(
         }
 
         val qobuzError = qobuzAttempt.exceptionOrNull() ?: IllegalStateException("Qobuz failed")
+        Timber.tag(TAG).w(
+            qobuzError,
+            "Qobuz download resolve failed for %s (title=%s, artists=%s, album=%s). Falling back to YouTube",
+            mediaId,
+            qobuzQuery.title,
+            qobuzQuery.artists.joinToString(),
+            qobuzQuery.album.orEmpty(),
+        )
         val youtubeAttempt = runCatching {
             resolveYouTubeFallback(mediaId)
         }
@@ -307,7 +337,8 @@ constructor(
 
     private companion object {
         private const val QOBUZ_FALLBACK_ITAG = 100_027
-        private const val QOBUZ_FALLBACK_CACHE_PREFIX = "qobuz-stream:"
+        private const val OLD_QOBUZ_FALLBACK_CACHE_PREFIX = "qobuz-stream:"
+        private const val QOBUZ_FALLBACK_CACHE_PREFIX = "qobuz-stream-v2:"
         private const val YOUTUBE_FALLBACK_CACHE_PREFIX = "youtube-fallback-aac:"
 
         private fun qobuzFallbackCacheKey(mediaId: String) = "$QOBUZ_FALLBACK_CACHE_PREFIX$mediaId"
@@ -315,6 +346,7 @@ constructor(
         private fun youtubeFallbackCacheKey(mediaId: String) = "$YOUTUBE_FALLBACK_CACHE_PREFIX$mediaId"
 
         private fun mediaIdFromDataSpecKey(key: String) = key
+            .removePrefix(OLD_QOBUZ_FALLBACK_CACHE_PREFIX)
             .removePrefix(QOBUZ_FALLBACK_CACHE_PREFIX)
             .removePrefix(YOUTUBE_FALLBACK_CACHE_PREFIX)
 

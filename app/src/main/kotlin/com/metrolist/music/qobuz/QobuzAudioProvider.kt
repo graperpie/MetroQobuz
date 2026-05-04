@@ -11,6 +11,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
+import timber.log.Timber
 import java.text.Normalizer
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
@@ -24,6 +25,7 @@ object QobuzAudioProvider {
 
     private const val SQUID_BASE_URL = "https://qobuz.squid.wtf"
     private const val JUMO_BASE_URL = "https://jumo-dl.pages.dev"
+    private const val KENNY_BASE_URL = "https://qobuz.kennyy.com.br"
     private const val STREAM_CACHE_MS = 5 * 60 * 1000L
     private const val REJECT_SCORE = -1_000_000
     private const val MIN_REASONABLE_BITRATE = 32_000
@@ -35,6 +37,11 @@ object QobuzAudioProvider {
 
     enum class ResolverBackend {
         JUMO,
+        SQUID,
+    }
+
+    private enum class SearchBackend {
+        KENNY,
         SQUID,
     }
 
@@ -104,6 +111,10 @@ object QobuzAudioProvider {
     fun resolve(query: Query): Resolved {
         val resolverRegion = normalizeResolverRegion(query.countryCode, query.backend)
         val streamCacheKey = query.cacheKey(resolverRegion)
+        val trackSearchRegion = when (query.backend) {
+            ResolverBackend.JUMO -> resolverRegion
+            ResolverBackend.SQUID -> query.countryCode
+        }
         val now = System.currentTimeMillis()
         streamCache[streamCacheKey]
             ?.takeIf { it.expiresAtMs > now + 20_000L }
@@ -111,9 +122,16 @@ object QobuzAudioProvider {
 
         val trackCacheKey = query.trackCacheKey()
         val track = trackCache[trackCacheKey]
-            ?: findBestTrack(query)
-                ?.also { trackCache[trackCacheKey] = it }
-            ?: throw QobuzResolutionException("Qobuz match not found for ${query.title}")
+            ?: run {
+                val lookup = findBestTrack(query, trackSearchRegion)
+                lookup.track?.also { trackCache[trackCacheKey] = it } ?: run {
+                    val reason = lookup.error?.takeIf { it.isNotBlank() }
+                    if (reason != null) {
+                        throw QobuzResolutionException("Qobuz search failed for ${query.title}: $reason")
+                    }
+                    throw QobuzResolutionException("Qobuz match not found for ${query.title}")
+                }
+            }
 
         var lastError: String? = null
         for (quality in buildQualityFallbackOrder(query.qualityCode)) {
@@ -127,6 +145,14 @@ object QobuzAudioProvider {
             }
             if (!attempt.error.isNullOrBlank()) {
                 lastError = attempt.error
+                Timber.tag("QobuzAudioProvider").d(
+                    "Stream attempt failed for %s (%s, region=%s, quality=%d): %s",
+                    query.title,
+                    query.backend.name,
+                    resolverRegion,
+                    quality,
+                    attempt.error,
+                )
                 if (attempt.error.contains("captcha", ignoreCase = true)) break
             }
         }
@@ -140,45 +166,150 @@ object QobuzAudioProvider {
             .forEach { streamCache.remove(it) }
     }
 
-    private fun findBestTrack(query: Query): MatchedTrack? {
+    private data class TrackLookupResult(
+        val track: MatchedTrack? = null,
+        val error: String? = null,
+    )
+
+    private fun findBestTrack(
+        query: Query,
+        searchRegion: String,
+    ): TrackLookupResult {
+        var lastSearchError: String? = null
         for (term in searchTerms(query)) {
-            val results = searchTracks(term, query.countryCode) ?: continue
-            selectBestTrack(results, query)?.let { return it }
+            for (backend in searchBackendOrder(query.backend)) {
+                val search = when (backend) {
+                    SearchBackend.KENNY -> searchTracks(term, query.countryCode, SearchBackend.KENNY)
+                    SearchBackend.SQUID -> when (query.backend) {
+                        ResolverBackend.JUMO -> searchTracksJumo(term, searchRegion)
+                        ResolverBackend.SQUID -> searchTracks(term, searchRegion, SearchBackend.SQUID)
+                    }
+                }
+                if (search.error != null) {
+                    lastSearchError = search.error
+                }
+                val results = search.items ?: continue
+                selectBestTrack(results, query)?.let { return TrackLookupResult(track = it) }
+            }
         }
-        return null
+        return TrackLookupResult(error = lastSearchError)
     }
+
+    private fun searchBackendOrder(preferred: ResolverBackend): List<SearchBackend> {
+        return when (preferred) {
+            ResolverBackend.JUMO,
+            ResolverBackend.SQUID -> listOf(SearchBackend.KENNY, SearchBackend.SQUID)
+        }
+    }
+
+    private data class TrackSearchResult(
+        val items: JSONArray? = null,
+        val error: String? = null,
+    )
 
     private fun searchTracks(
         term: String,
         countryCode: String,
-    ): JSONArray? {
-        val url = "$SQUID_BASE_URL/api/get-music".toHttpUrlOrNull()
+        backend: SearchBackend,
+    ): TrackSearchResult {
+        val baseUrl = when (backend) {
+            SearchBackend.KENNY -> KENNY_BASE_URL
+            SearchBackend.SQUID -> SQUID_BASE_URL
+        }
+        val url = "$baseUrl/api/get-music".toHttpUrlOrNull()
             ?.newBuilder()
             ?.addQueryParameter("q", term)
             ?.addQueryParameter("offset", "0")
             ?.build()
-            ?: return null
+            ?: return TrackSearchResult(error = "Qobuz search URL could not be built")
 
         val request = Request.Builder()
             .url(url)
             .get()
             .header("Accept", "application/json")
-            .header("Token-Country", countryCode)
-            .header("Referer", "$SQUID_BASE_URL/")
+            .header("Referer", "$baseUrl/")
             .header("User-Agent", "Mozilla/5.0")
+            .apply {
+                if (backend == SearchBackend.SQUID) {
+                    header("Token-Country", countryCode)
+                }
+            }
             .build()
 
         return runCatching {
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@use null
-                val payload = response.body?.string()?.takeIf { it.isNotBlank() } ?: return@use null
+                val payload = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    return@use TrackSearchResult(
+                        error = "${backend.name} search HTTP ${response.code}: ${payload.take(160)}"
+                    )
+                }
+                if (payload.isBlank()) {
+                    return@use TrackSearchResult(error = "${backend.name} search returned an empty response")
+                }
                 val root = JSONObject(payload)
-                if (!root.optBoolean("success", false)) return@use null
-                root.optJSONObject("data")
-                    ?.optJSONObject("tracks")
-                    ?.optJSONArray("items")
+                if (!root.optBoolean("success", false)) {
+                    return@use TrackSearchResult(
+                        error = "${backend.name} search rejected request: ${root.stringOrNull("error") ?: "unknown error"}"
+                    )
+                }
+                TrackSearchResult(
+                    items = root.optJSONObject("data")
+                        ?.optJSONObject("tracks")
+                        ?.optJSONArray("items")
+                )
             }
-        }.getOrNull()
+        }.getOrElse { error ->
+            TrackSearchResult(error = "${backend.name} search request failed: ${error.message ?: error.javaClass.simpleName}")
+        }
+    }
+
+    private fun searchTracksJumo(
+        term: String,
+        region: String,
+    ): TrackSearchResult {
+        val url = "$JUMO_BASE_URL/search".toHttpUrlOrNull()
+            ?.newBuilder()
+            ?.addQueryParameter("query", term)
+            ?.addQueryParameter("offset", "0")
+            ?.addQueryParameter("limit", "30")
+            ?.addQueryParameter("region", region)
+            ?.build()
+            ?: return TrackSearchResult(error = "JUMO search URL could not be built")
+
+        val request = Request.Builder()
+            .url(url)
+            .get()
+            .header("Accept", "application/json")
+            .header("User-Agent", BROWSER_USER_AGENT)
+            .build()
+
+        return runCatching {
+            client.newCall(request).execute().use { response ->
+                val payload = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    return@use TrackSearchResult(
+                        error = "JUMO search HTTP ${response.code}: ${payload.take(160)}"
+                    )
+                }
+                if (payload.isBlank()) {
+                    return@use TrackSearchResult(error = "JUMO search returned an empty response")
+                }
+                val root = JSONObject(payload)
+                if (!root.optBoolean("success", false)) {
+                    return@use TrackSearchResult(
+                        error = "JUMO search rejected request: ${root.stringOrNull("error") ?: "unknown error"}"
+                    )
+                }
+                TrackSearchResult(
+                    items = root.optJSONObject("data")
+                        ?.optJSONObject("tracks")
+                        ?.optJSONArray("items")
+                )
+            }
+        }.getOrElse { error ->
+            TrackSearchResult(error = "JUMO search request failed: ${error.message ?: error.javaClass.simpleName}")
+        }
     }
 
     private fun selectBestTrack(
@@ -197,11 +328,22 @@ object QobuzAudioProvider {
             val track: MatchedTrack,
             val score: Int,
         )
+        data class EvaluatedCandidate(
+            val trackId: String,
+            val title: String,
+            val artists: String,
+            val score: Int,
+            val downloadable: Boolean,
+        )
 
         val candidates = mutableListOf<Candidate>()
+        val evaluated = mutableListOf<EvaluatedCandidate>()
+        val minAcceptScore = if (query.backend == ResolverBackend.JUMO) 150 else 260
         for (index in 0 until results.length()) {
             val obj = results.optJSONObject(index) ?: continue
-            if (!obj.optBoolean("downloadable", false)) continue
+            val downloadable = obj.optBoolean("downloadable", false)
+            val streamable = obj.optBoolean("streamable", false)
+            if (query.backend == ResolverBackend.SQUID && !downloadable && !streamable) continue
 
             val trackId = obj.stringOrNull("id") ?: continue
             val candidateTitle = obj.stringOrNull("title").normalized()
@@ -219,9 +361,11 @@ object QobuzAudioProvider {
             val bitDepth = obj.intOrNull("maximum_bit_depth")
             val samplingRate = obj.doubleOrNull("maximum_sampling_rate")
 
-            if (hasVersionMismatch(wantedDescriptorText, candidateCombinedTitle)) continue
+            val versionPenalty = versionMismatchPenalty(wantedDescriptorText, candidateCombinedTitle)
+            if (versionPenalty <= REJECT_SCORE) continue
 
             var score = 0
+            score += versionPenalty
 
             if (wantedIsrc.isNotBlank() && candidateIsrc == wantedIsrc) {
                 score += 1000
@@ -263,7 +407,7 @@ object QobuzAudioProvider {
                     wantedArtists.any { wanted ->
                         candidateArtists.any { candidate -> candidate.contains(wanted) || wanted.contains(candidate) }
                     } -> 90
-                    else -> REJECT_SCORE
+                    else -> if (query.backend == ResolverBackend.JUMO) -120 else REJECT_SCORE
                 }
             }
 
@@ -279,8 +423,17 @@ object QobuzAudioProvider {
             }
 
             if (hires) score += 15
+            if (!downloadable && !streamable) score -= 25
 
-            if (score > REJECT_SCORE && (score >= 260 || wantedIsrc.isNotBlank() && candidateIsrc == wantedIsrc)) {
+            evaluated += EvaluatedCandidate(
+                trackId = trackId,
+                title = candidateCombinedTitle,
+                artists = candidateArtists.joinToString(),
+                score = score,
+                downloadable = downloadable || streamable,
+            )
+
+            if (score > REJECT_SCORE && (score >= minAcceptScore || wantedIsrc.isNotBlank() && candidateIsrc == wantedIsrc)) {
                 candidates += Candidate(
                     track = MatchedTrack(
                         trackId = trackId,
@@ -289,6 +442,26 @@ object QobuzAudioProvider {
                         samplingRateKhz = samplingRate,
                     ),
                     score = score,
+                )
+            }
+        }
+
+        if (candidates.isEmpty()) {
+            val top = evaluated
+                .sortedByDescending { it.score }
+                .take(3)
+                .joinToString(" | ") {
+                    "${it.trackId} score=${it.score} downloadable=${it.downloadable} title='${it.title}' artists='${it.artists}'"
+                }
+            if (top.isNotBlank()) {
+                Timber.tag("QobuzAudioProvider").w(
+                    "No acceptable Qobuz candidate for '%s' by '%s' (backend=%s, country=%s, min=%d). Top matches: %s",
+                    query.title,
+                    query.artists.joinToString(),
+                    query.backend.name,
+                    query.countryCode,
+                    minAcceptScore,
+                    top,
                 )
             }
         }
@@ -627,25 +800,35 @@ object QobuzAudioProvider {
         return names.distinct()
     }
 
-    private fun hasVersionMismatch(
+    private fun versionMismatchPenalty(
         query: String,
         candidateTitle: String,
-    ): Boolean {
-        val versionTokens = listOf(
+    ): Int {
+        val strictTokens = listOf(
             "remix",
             "live",
-            "edit",
-            "acoustic",
             "instrumental",
             "karaoke",
-            "remaster",
-            "remastered",
             "sped up",
             "slowed",
         )
-        val queryHasVersion = versionTokens.any { query.contains(it) }
-        val candidateHasVersion = versionTokens.any { candidateTitle.contains(it) }
-        return candidateHasVersion && !queryHasVersion
+        val softTokens = listOf(
+            "remaster",
+            "remastered",
+            "edit",
+            "acoustic",
+            "version",
+            "mono",
+            "stereo",
+            "deluxe",
+        )
+        val queryHasStrict = strictTokens.any { query.contains(it) }
+        val candidateHasStrict = strictTokens.any { candidateTitle.contains(it) }
+        if (candidateHasStrict && !queryHasStrict) return REJECT_SCORE
+
+        val queryHasSoft = softTokens.any { query.contains(it) }
+        val candidateHasSoft = softTokens.any { candidateTitle.contains(it) }
+        return if (candidateHasSoft && !queryHasSoft) -45 else 0
     }
 
     private fun Query.cacheKey(resolverRegion: String): String {

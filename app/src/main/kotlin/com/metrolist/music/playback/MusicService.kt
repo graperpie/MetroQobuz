@@ -425,6 +425,7 @@ class MusicService :
         val uri: String,
         val expiresAtMs: Long,
         val cacheKey: String,
+        val selectionKey: String,
     )
 
     private data class PlaybackStreamResolution(
@@ -3266,12 +3267,18 @@ class MusicService :
         return ResolvingDataSource.Factory(baseDataSourceFactory) { dataSpec ->
             val mediaId = dataSpec.key?.let(::mediaIdFromDataSpecKey) ?: error("No media id")
             val song = database.getSongByIdBlocking(mediaId)
+            val streamSelectionKey = currentQobuzSelectionKey()
 
             if (song?.song?.isLocal == true || song?.song?.isEpisode == true) {
                 return@Factory dataSpec
             }
 
-            songUrlCache[mediaId]?.takeIf { it.expiresAtMs > System.currentTimeMillis() }?.let { cached ->
+            val shouldBypassUrlCache = bypassCacheForQualityChange.contains(mediaId)
+            songUrlCache[mediaId]?.takeIf {
+                !shouldBypassUrlCache &&
+                    it.expiresAtMs > System.currentTimeMillis() &&
+                    it.selectionKey == streamSelectionKey
+            }?.let { cached ->
                 return@Factory dataSpec
                     .buildUpon()
                     .setUri(cached.uri.toUri())
@@ -3338,6 +3345,7 @@ class MusicService :
                 uri = resolved.uri,
                 expiresAtMs = resolved.expiresAtMs,
                 cacheKey = resolved.cacheKey,
+                selectionKey = streamSelectionKey,
             )
             return@Factory dataSpec
                 .buildUpon()
@@ -3347,12 +3355,27 @@ class MusicService :
         }
     }
 
+    private fun currentQobuzSelectionKey(): String {
+        val backend = dataStore.get(QobuzBackendKey).toEnum(QobuzBackend.JUMO)
+        val country = dataStore.get(QobuzCountryKey, "US")
+            .trim()
+            .uppercase(Locale.US)
+            .takeIf { it.matches(Regex("[A-Z]{2}")) }
+            ?: "US"
+        return listOf(
+            "backend=${backend.name}",
+            "country=$country",
+            "quality=${QobuzAudioProvider.qualityCodeFor(audioQuality)}",
+        ).joinToString(";")
+    }
+
     private suspend fun resolveOnlineStream(
         mediaId: String,
         song: Song?,
     ): PlaybackStreamResolution {
+        val qobuzQuery = buildQobuzQuery(mediaId, song)
         val qobuzAttempt = runCatching {
-            QobuzAudioProvider.resolve(buildQobuzQuery(mediaId, song))
+            QobuzAudioProvider.resolve(qobuzQuery)
         }
         qobuzAttempt.getOrNull()?.let { resolved ->
                 Timber.tag("MusicService").i("Using Qobuz stream for $mediaId: ${resolved.label}")
@@ -3366,6 +3389,14 @@ class MusicService :
 
             val qobuzError = qobuzAttempt.exceptionOrNull()
                 ?: IllegalStateException("Qobuz stream failed")
+            Timber.tag("MusicService").w(
+                qobuzError,
+                "Qobuz resolve failed for %s (title=%s, artists=%s, album=%s). Falling back to YouTube",
+                mediaId,
+                qobuzQuery.title,
+                qobuzQuery.artists.joinToString(),
+                qobuzQuery.album.orEmpty(),
+            )
             
             val youtubeAttempt = runCatching {
                 resolveYouTubeFallback(mediaId)
@@ -4313,7 +4344,8 @@ class MusicService :
         private const val TAG = "MusicService"
         private const val PRIVATE_STREAM_MARKER = "_metrolist_private"
         private const val QOBUZ_FALLBACK_ITAG = 100_027
-        private const val QOBUZ_FALLBACK_CACHE_PREFIX = "qobuz-fallback:"
+        private const val OLD_QOBUZ_FALLBACK_CACHE_PREFIX = "qobuz-fallback:"
+        private const val QOBUZ_FALLBACK_CACHE_PREFIX = "qobuz-fallback-v2:"
         private const val YOUTUBE_FALLBACK_CACHE_PREFIX = "youtube-fallback-aac:"
 
         private fun qobuzFallbackCacheKey(mediaId: String) = "$QOBUZ_FALLBACK_CACHE_PREFIX$mediaId"
@@ -4321,6 +4353,7 @@ class MusicService :
         private fun youtubeFallbackCacheKey(mediaId: String) = "$YOUTUBE_FALLBACK_CACHE_PREFIX$mediaId"
 
         private fun mediaIdFromDataSpecKey(key: String) = key
+            .removePrefix(OLD_QOBUZ_FALLBACK_CACHE_PREFIX)
             .removePrefix(QOBUZ_FALLBACK_CACHE_PREFIX)
             .removePrefix(YOUTUBE_FALLBACK_CACHE_PREFIX)
 

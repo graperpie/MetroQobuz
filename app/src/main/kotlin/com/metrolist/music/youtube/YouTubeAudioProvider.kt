@@ -30,7 +30,7 @@ object YouTubeAudioProvider {
     const val STREAM_MARKER_QUERY = "_metrolist_youtube"
 
     private const val TAG = "YouTubeAudioProvider"
-    private const val STREAM_MARKER_VALUE = "bravepipe"
+    private const val STREAM_MARKER_VALUE = "youtube"
     private const val MIN_TARGET_KBPS = 128
     private const val MAX_TARGET_KBPS = 160
     private const val MAX_TARGET_BPS = MAX_TARGET_KBPS * 1000
@@ -53,7 +53,7 @@ object YouTubeAudioProvider {
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
-    private val extractorDownloader = BravePipeExtractorDownloader(httpClient)
+    private val extractorDownloader = YouTubeExtractorDownloader(httpClient)
 
     @Volatile
     private var extractorInitialized = false
@@ -86,7 +86,7 @@ object YouTubeAudioProvider {
             StreamInfo.getInfo("$WATCH_URL_PREFIX$videoId")
         }.getOrElse { error ->
             throw YouTubeAudioResolutionException(
-                "BravePipeExtractor could not read YouTube stream info for $videoId: ${error.readableMessage()}",
+                "YouTube extractor could not read stream info for $videoId: ${error.readableMessage()}",
                 error,
             )
         }
@@ -126,7 +126,7 @@ object YouTubeAudioProvider {
             expiresAtMs = expiresAtMs,
         ).also { resolved ->
             Timber.tag(TAG).i(
-                "Resolved BravePipe YouTube stream for $videoId: " +
+                "Resolved YouTube fallback stream for $videoId: " +
                     "itag=${resolved.itag}, mime=${resolved.mimeType}, bitrate=${resolved.bitrate}",
             )
             streamCache[videoId] = resolved
@@ -137,7 +137,7 @@ object YouTubeAudioProvider {
         streamCache.remove(videoId)
     }
 
-    fun userAgentFor(clientKey: String?): String = BravePipeExtractorDownloader.USER_AGENT
+    fun userAgentFor(clientKey: String?): String = YouTubeExtractorDownloader.USER_AGENT
 
     fun addYouTubePlaybackHeaders(
         builder: Request.Builder,
@@ -157,7 +157,7 @@ object YouTubeAudioProvider {
         clientKey: String?,
     ): Request.Builder {
         return builder
-            .header("User-Agent", BravePipeExtractorDownloader.USER_AGENT)
+            .header("User-Agent", YouTubeExtractorDownloader.USER_AGENT)
             .header("Accept", "*/*")
             .header("Accept-Encoding", "identity")
             .header("Origin", ORIGIN_YOUTUBE)
@@ -210,7 +210,7 @@ object YouTubeAudioProvider {
                 response.code
             }
         } catch (e: Exception) {
-            Timber.tag(TAG).w(e, "BravePipe YouTube stream validation failed")
+            Timber.tag(TAG).w(e, "YouTube fallback stream validation failed")
             null
         }
     }
@@ -281,7 +281,7 @@ object YouTubeAudioProvider {
     private fun Throwable.readableMessage(): String =
         message?.takeIf { it.isNotBlank() } ?: javaClass.simpleName
 
-    private class BravePipeExtractorDownloader(
+    private class YouTubeExtractorDownloader(
         private val client: OkHttpClient,
     ) : Downloader() {
         override fun execute(request: ExtractorRequest): ExtractorResponse {
@@ -319,7 +319,7 @@ object YouTubeAudioProvider {
             } catch (e: IOException) {
                 throw e
             } catch (e: Exception) {
-                throw IOException("BravePipeExtractor request failed", e)
+                throw IOException("YouTube extractor request failed", e)
             }
         }
 
