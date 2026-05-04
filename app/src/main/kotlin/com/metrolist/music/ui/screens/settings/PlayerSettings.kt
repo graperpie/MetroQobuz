@@ -6,6 +6,7 @@
 package com.metrolist.music.ui.screens.settings
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.height
@@ -17,6 +18,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -102,7 +104,7 @@ fun PlayerSettings(
 ) {
     val (audioQuality, onAudioQualityChange) = rememberEnumPreference(
         AudioQualityKey,
-        defaultValue = AudioQuality.AUTO
+        defaultValue = AudioQuality.HI_RES_LOSSLESS
     )
     val (crossfadeEnabled, onCrossfadeEnabledChange) = rememberPreference(
         CrossfadeEnabledKey,
@@ -252,14 +254,18 @@ fun PlayerSettings(
             title = stringResource(R.string.audio_quality),
             current = audioQuality,
             values = AudioQuality.values().toList(),
-            valueText = {
-                when (it) {
-                    AudioQuality.AUTO -> stringResource(R.string.audio_quality_auto)
-                    AudioQuality.HIGH -> stringResource(R.string.audio_quality_high)
-                    AudioQuality.LOW -> stringResource(R.string.audio_quality_low)
-                    AudioQuality.VERY_HIGH -> stringResource(R.string.audio_quality_very_high)
-                }
-            }
+            valueText = { audioQualityLabel(it) },
+            footer = {
+                Text(
+                    text = stringResource(R.string.audio_quality_hires_notice),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp, vertical = 12.dp),
+                )
+            },
         )
     }
 
@@ -358,12 +364,7 @@ fun PlayerSettings(
                     title = { Text(stringResource(R.string.audio_quality)) },
                     description = {
                         Text(
-                            when (audioQuality) {
-                                AudioQuality.AUTO -> stringResource(R.string.audio_quality_auto)
-                                AudioQuality.HIGH -> stringResource(R.string.audio_quality_high)
-                                AudioQuality.LOW -> stringResource(R.string.audio_quality_low)
-                                AudioQuality.VERY_HIGH -> stringResource(R.string.audio_quality_very_high)
-                            }
+                            audioQualityLabel(audioQuality)
                         )
                     },
                     onClick = { showAudioQualityDialog = true }
@@ -1162,3 +1163,11 @@ fun PlayerSettings(
         }
     )
 }
+
+@Composable
+private fun audioQualityLabel(audioQuality: AudioQuality): String =
+    when (audioQuality) {
+        AudioQuality.AAC_320 -> stringResource(R.string.audio_quality_aac_320)
+        AudioQuality.CD_QUALITY -> stringResource(R.string.audio_quality_cd_quality)
+        AudioQuality.HI_RES_LOSSLESS -> stringResource(R.string.audio_quality_hires_lossless)
+    }

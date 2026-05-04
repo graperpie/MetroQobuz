@@ -313,6 +313,7 @@ class MusicService :
     var queueTitle: String? = null
 
     val currentMediaMetadata = MutableStateFlow<com.metrolist.music.models.MediaMetadata?>(null)
+    val currentAppleCanvasUrl = MutableStateFlow<String?>(null)
     private val currentSong =
         currentMediaMetadata
             .flatMapLatest { mediaMetadata ->
@@ -635,7 +636,7 @@ class MusicService :
 
         audioManager.registerAudioDeviceCallback(audioDeviceCallback, null)
 
-        audioQuality = dataStore.get(AudioQualityKey).toEnum(com.metrolist.music.constants.AudioQuality.AUTO)
+        audioQuality = dataStore.get(AudioQualityKey).toEnum(com.metrolist.music.constants.AudioQuality.HI_RES_LOSSLESS)
         playerVolume = MutableStateFlow(dataStore.get(PlayerVolumeKey, 1f).coerceIn(0f, 1f))
 
         // Initialize Google Cast
@@ -648,6 +649,7 @@ class MusicService :
         currentMediaMetadata
             .distinctUntilChangedBy { it?.id }
             .collectLatest(scope) { metadata ->
+                updateAppleCanvas(metadata)
             }
 
         // 4. Watch for EQ profile changes
@@ -696,7 +698,7 @@ class MusicService :
                     it[AudioQualityKey]?.let { value ->
                         com.metrolist.music.constants.AudioQuality.entries
                             .find { it.name == value }
-                    } ?: com.metrolist.music.constants.AudioQuality.AUTO
+                    } ?: com.metrolist.music.constants.AudioQuality.HI_RES_LOSSLESS
                 }.distinctUntilChanged()
                 .collect { newQuality ->
                     val oldQuality = audioQuality
@@ -3426,6 +3428,7 @@ class MusicService :
             durationMs = durationMs,
             countryCode = country,
             backend = backend.toQobuzProviderBackend(),
+            qualityCode = QobuzAudioProvider.qualityCodeFor(audioQuality),
         )
     }
 
@@ -3438,6 +3441,35 @@ class MusicService :
 
     private fun Throwable.readableMessage(): String {
         return message?.takeIf { it.isNotBlank() } ?: javaClass.simpleName
+    }
+
+    private suspend fun updateAppleCanvas(metadata: com.metrolist.music.models.MediaMetadata?) {
+        currentAppleCanvasUrl.value = null
+        if (metadata == null || metadata.isEpisode || metadata.isVideoSong) return
+
+        val artist = metadata.artists.firstOrNull()?.name?.takeIf { it.isNotBlank() } ?: return
+        val album = metadata.album?.title
+        val cached = com.metrolist.music.apple.AppleMusicCanvasProvider.getCached(
+            song = metadata.title,
+            artist = artist,
+            album = album,
+        )?.animated?.takeIf { it.isNotBlank() }
+        if (cached != null) {
+            currentAppleCanvasUrl.value = cached
+            return
+        }
+
+        val resolved = kotlinx.coroutines.withTimeoutOrNull(2_500L) {
+            com.metrolist.music.apple.AppleMusicCanvasProvider.getBySongArtist(
+                song = metadata.title,
+                artist = artist,
+                album = album,
+            )?.animated?.takeIf { it.isNotBlank() }
+        }
+
+        if (currentMediaMetadata.value?.id == metadata.id) {
+            currentAppleCanvasUrl.value = resolved
+        }
     }
 
     private fun currentQueueMetadata(mediaId: String): com.metrolist.music.models.MediaMetadata? {

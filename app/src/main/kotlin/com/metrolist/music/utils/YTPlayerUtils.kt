@@ -530,22 +530,15 @@ object YTPlayerUtils {
         val maxBitrate = audioCapableFormats.maxOfOrNull { it.bitrate } ?: return null
 
         val targetBitrate = when (audioQuality) {
-            AudioQuality.VERY_HIGH -> maxBitrate.toDouble()
-            AudioQuality.HIGH -> minOf(maxBitrate.toDouble(), 256000.0)
-            AudioQuality.LOW -> minOf(maxBitrate.toDouble(), 128000.0)
-            AudioQuality.AUTO -> {
-                if (connectivityManager.isActiveNetworkMetered) {
-                    minOf(maxBitrate.toDouble(), 128000.0)
-                } else {
-                    maxBitrate.toDouble()
-                }
-            }
+            AudioQuality.AAC_320 -> minOf(maxBitrate.toDouble(), 320000.0)
+            AudioQuality.CD_QUALITY -> minOf(maxBitrate.toDouble(), 256000.0)
+            AudioQuality.HI_RES_LOSSLESS -> maxBitrate.toDouble()
         }
 
         Timber.tag(logTag).d("Finding format: maxBitrate=$maxBitrate, targetBitrate=$targetBitrate")
 
         val format = when (audioQuality) {
-            AudioQuality.VERY_HIGH -> {
+            AudioQuality.HI_RES_LOSSLESS -> {
                 val opus338 = audioCapableFormats.find { it.itag == 338 }
                 if (opus338 != null) {
                     Timber.tag(logTag).d("Selected Opus itag 338: bitrate=${opus338.bitrate}")
@@ -585,7 +578,7 @@ object YTPlayerUtils {
             }
         }
 
-        if (format != null && audioQuality == AudioQuality.VERY_HIGH) {
+        if (format != null && audioQuality == AudioQuality.HI_RES_LOSSLESS) {
             Timber.tag(logTag).d("Selected format: ${format.mimeType}, bitrate: ${format.bitrate}")
         } else if (format == null) {
             Timber.tag(logTag).d("No suitable audio format found")

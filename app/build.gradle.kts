@@ -27,6 +27,20 @@ val debugKeyAlias = System.getenv("METROLIST_DEBUG_KEY_ALIAS")?.takeIf { it.isNo
 val debugKeyPassword = System.getenv("METROLIST_DEBUG_KEY_PASSWORD")?.takeIf { it.isNotBlank() } ?: "android"
 val persistentDebugKeystoreFile = file("persistent-debug.keystore")
 val workflowDebugKeystoreFile = debugKeystorePathOverride?.let(::file)
+val defaultDebugKeystoreFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
+val fallbackSigningKeystoreFile =
+    workflowDebugKeystoreFile
+        ?: persistentDebugKeystoreFile.takeIf { it.exists() }
+        ?: defaultDebugKeystoreFile
+val releaseKeystoreFile = file("keystore/release.keystore")
+val releaseStorePassword = System.getenv("STORE_PASSWORD")?.takeIf { it.isNotBlank() }
+val releaseKeyAlias = System.getenv("KEY_ALIAS")?.takeIf { it.isNotBlank() }
+val releaseKeyPassword = System.getenv("KEY_PASSWORD")?.takeIf { it.isNotBlank() }
+val hasReleaseSigningCredentials =
+    releaseKeystoreFile.exists() &&
+        releaseStorePassword != null &&
+        releaseKeyAlias != null &&
+        releaseKeyPassword != null
 
 plugins {
     id("com.android.application")
@@ -149,16 +163,16 @@ android {
             keyPassword = debugKeyPassword
         }
         create("release") {
-            storeFile = file("keystore/release.keystore")
-            storePassword = System.getenv("STORE_PASSWORD")
-            keyAlias = System.getenv("KEY_ALIAS")
-            keyPassword = System.getenv("KEY_PASSWORD")
+            storeFile = if (hasReleaseSigningCredentials) releaseKeystoreFile else fallbackSigningKeystoreFile
+            storePassword = releaseStorePassword ?: debugKeystorePassword
+            keyAlias = releaseKeyAlias ?: debugKeyAlias
+            keyPassword = releaseKeyPassword ?: debugKeyPassword
         }
         getByName("debug") {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
             storePassword = "android"
-            storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
+            storeFile = defaultDebugKeystoreFile
         }
     }
 

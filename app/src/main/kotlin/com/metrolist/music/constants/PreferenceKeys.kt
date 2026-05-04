@@ -109,10 +109,9 @@ val LastUpdateCheckTimeKey = longPreferencesKey("lastUpdateCheckTime")
 val AudioQualityKey = stringPreferencesKey("audioQuality")
 
 enum class AudioQuality {
-    AUTO,
-    LOW,
-    HIGH,
-    VERY_HIGH,
+    AAC_320,
+    CD_QUALITY,
+    HI_RES_LOSSLESS,
 }
 
 val QobuzBackendKey = stringPreferencesKey("qobuzBackend")

@@ -28,6 +28,7 @@ fun <T> EnumDialog(
     values: List<T>,
     valueText: @Composable (T) -> String,
     valueDescription: (@Composable (T) -> String)? = null,
+    footer: (@Composable () -> Unit)? = null,
 ) {
     ListDialog(
         onDismiss = onDismiss,
@@ -62,6 +63,11 @@ fun <T> EnumDialog(
                         )
                     }
                 }
+            }
+        }
+        if (footer != null) {
+            item {
+                footer()
             }
         }
     }

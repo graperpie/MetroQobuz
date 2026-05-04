@@ -5,6 +5,7 @@
 
 package com.metrolist.music.qobuz
 
+import com.metrolist.music.constants.AudioQuality
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -25,6 +26,10 @@ object QobuzAudioProvider {
     private const val JUMO_BASE_URL = "https://jumo-dl.pages.dev"
     private const val STREAM_CACHE_MS = 5 * 60 * 1000L
     private const val REJECT_SCORE = -1_000_000
+    private const val MIN_REASONABLE_BITRATE = 32_000
+    private const val MAX_REASONABLE_BITRATE = 20_000_000
+    private const val DEFAULT_LOSSLESS_CHANNELS = 2
+    private const val FLAC_ESTIMATED_COMPRESSION_RATIO = 0.6
 
     private val JUMO_SUPPORTED_REGIONS = setOf("FR", "NL", "NZ", "JP")
 
@@ -77,6 +82,13 @@ object QobuzAudioProvider {
 
     private val trackCache = ConcurrentHashMap<String, MatchedTrack>()
     private val streamCache = ConcurrentHashMap<String, Resolved>()
+
+    fun qualityCodeFor(audioQuality: AudioQuality): Int =
+        when (audioQuality) {
+            AudioQuality.AAC_320 -> 5
+            AudioQuality.CD_QUALITY -> 6
+            AudioQuality.HI_RES_LOSSLESS -> 27
+        }
 
     fun normalizeResolverRegion(
         countryCode: String,
@@ -479,7 +491,7 @@ object QobuzAudioProvider {
                 label = "Qobuz AAC",
                 mimeType = "audio/mp4",
                 codecs = "mp4a.40.2",
-                bitrate = normalizedBitrate,
+                bitrate = normalizedBitrate.takeIf { it > 0 } ?: 320_000,
                 sampleRate = sampleRate,
             )
 
@@ -488,7 +500,9 @@ object QobuzAudioProvider {
                     label = buildFlacLabel(bitDepth, samplingRateKhz, hires),
                     mimeType = "audio/flac",
                     codecs = "flac",
-                    bitrate = losslessBitrate ?: 0,
+                    bitrate = losslessBitrate
+                        ?.takeIf { it > 0 }
+                        ?: estimateCompressedLosslessBitrate(bitDepth, samplingRateKhz, hires),
                     sampleRate = sampleRate,
                 )
             }
@@ -513,6 +527,22 @@ object QobuzAudioProvider {
             .takeIf { it in 32_000L..20_000_000L }
             ?.coerceAtMost(Int.MAX_VALUE.toLong())
             ?.toInt()
+    }
+
+    private fun estimateCompressedLosslessBitrate(
+        bitDepth: Int?,
+        samplingRateKhz: Double?,
+        hires: Boolean,
+    ): Int {
+        val depth = bitDepth?.takeIf { it > 0 } ?: if (hires) 24 else 16
+        val sampleRate = samplingRateKhz
+            ?.takeIf { it > 0.0 }
+            ?.let { (it * 1000.0).roundToInt() }
+            ?: if (hires) 96_000 else 44_100
+        val estimated = depth * sampleRate * DEFAULT_LOSSLESS_CHANNELS * FLAC_ESTIMATED_COMPRESSION_RATIO
+        return estimated
+            .roundToInt()
+            .coerceIn(MIN_REASONABLE_BITRATE, MAX_REASONABLE_BITRATE)
     }
 
     private fun fetchStreamContentLength(url: String): Long? {

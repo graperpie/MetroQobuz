@@ -15,6 +15,8 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadNotificationHelper
+import com.metrolist.music.constants.AudioQuality
+import com.metrolist.music.constants.AudioQualityKey
 import com.metrolist.music.constants.QobuzBackend
 import com.metrolist.music.constants.QobuzBackendKey
 import com.metrolist.music.constants.QobuzCountryKey
@@ -198,6 +200,7 @@ constructor(
         song: Song?,
     ): QobuzAudioProvider.Query {
         val backend = context.dataStore.get(QobuzBackendKey).toEnum(QobuzBackend.JUMO)
+        val audioQuality = context.dataStore.get(AudioQualityKey).toEnum(AudioQuality.HI_RES_LOSSLESS)
         val country = context.dataStore.get(QobuzCountryKey, "US")
             .trim()
             .uppercase(Locale.US)
@@ -218,6 +221,7 @@ constructor(
                 QobuzBackend.JUMO -> QobuzAudioProvider.ResolverBackend.JUMO
                 QobuzBackend.SQUID -> QobuzAudioProvider.ResolverBackend.SQUID
             },
+            qualityCode = QobuzAudioProvider.qualityCodeFor(audioQuality),
         )
     }
 

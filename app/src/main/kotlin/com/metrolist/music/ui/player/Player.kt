@@ -157,6 +157,7 @@ import com.metrolist.music.constants.SpotifyCookieKey
 import com.metrolist.music.constants.SquigglySliderKey
 import com.metrolist.music.constants.ThumbnailCornerRadius
 import com.metrolist.music.constants.UseNewPlayerDesignKey
+import com.metrolist.music.db.entities.FormatEntity
 import com.metrolist.music.db.entities.LyricsEntity
 import com.metrolist.music.extensions.metadata
 import com.metrolist.music.extensions.togglePlayPause
@@ -330,24 +331,11 @@ fun BottomSheetPlayer(
     val isMuted by playerConnection.isMuted.collectAsStateWithLifecycle()
     val playerQualityLabel =
         remember(currentFormat) {
-            currentFormat
-                ?.let { format ->
-                    val codec = when {
-                        format.codecs.contains("alac", ignoreCase = true) ||
-                            format.codecs.contains("flac", ignoreCase = true) -> "FLAC"
-                        format.codecs.contains("mp3", ignoreCase = true) ||
-                            format.mimeType.contains("mpeg", ignoreCase = true) -> "MP3"
-                        format.codecs.contains("mp4a", ignoreCase = true) -> "AAC"
-                        else -> return@let null
-                    }
-                    val bitrate = format.bitrate
-                        .takeIf { it > 0 }
-                        ?.let { "${(it / 1000).coerceAtLeast(1)} kbps" }
-                    val sampleRate = format.sampleRate
-                        ?.takeIf { it > 0 }
-                        ?.let { "$it Hz" }
-                    listOfNotNull(codec, bitrate, sampleRate).joinToString(" \u2022 ")
-                }
+            currentFormat?.toPlayerFormatSummary()
+        }
+    val playerQualityBadgeLabel =
+        remember(currentFormat) {
+            currentFormat?.toPlayerQualityBadgeLabel()
         }
 
     val sliderStyle by rememberEnumPreference(SliderStyleKey, SliderStyle.DEFAULT)
@@ -442,7 +430,7 @@ fun BottomSheetPlayer(
     val fallbackColor = MaterialTheme.colorScheme.surface.toArgb()
 
     LaunchedEffect(mediaMetadata?.id, playerBackground) {
-        if (playerBackground == PlayerBackgroundStyle.GRADIENT) {
+        if (playerBackground == PlayerBackgroundStyle.BLUR || playerBackground == PlayerBackgroundStyle.GRADIENT) {
             val currentMetadata = mediaMetadata
             if (currentMetadata != null && currentMetadata.thumbnailUrl != null) {
                 val cachedColors = gradientColorsCache[currentMetadata.id]
@@ -494,9 +482,32 @@ fun BottomSheetPlayer(
                 PlayerBackgroundStyle.DEFAULT -> MaterialTheme.colorScheme.onBackground
                 PlayerBackgroundStyle.BLUR -> Color.White
                 PlayerBackgroundStyle.GRADIENT -> Color.White
-            },
+        },
         label = "TextBackgroundColor",
     )
+    val defaultQualityBadgeContainerColor = MaterialTheme.colorScheme.surfaceVariant
+    val defaultQualityBadgeContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val qualityBadgeContainerColor =
+        remember(effectivePlayerBackground, gradientColors, useDarkTheme, defaultQualityBadgeContainerColor) {
+            when (effectivePlayerBackground) {
+                PlayerBackgroundStyle.DEFAULT -> {
+                    defaultQualityBadgeContainerColor.copy(alpha = if (useDarkTheme) 0.58f else 0.72f)
+                }
+                PlayerBackgroundStyle.BLUR,
+                PlayerBackgroundStyle.GRADIENT -> {
+                    val artworkColor = gradientColors.firstOrNull() ?: Color.Black
+                    artworkColor.copy(alpha = 0.54f)
+                }
+            }
+        }
+    val qualityBadgeContentColor =
+        remember(effectivePlayerBackground, defaultQualityBadgeContentColor) {
+            when (effectivePlayerBackground) {
+                PlayerBackgroundStyle.DEFAULT -> defaultQualityBadgeContentColor.copy(alpha = 0.9f)
+                PlayerBackgroundStyle.BLUR,
+                PlayerBackgroundStyle.GRADIENT -> Color.White.copy(alpha = 0.82f)
+            }
+        }
 
     val icBackgroundColor by animateColorAsState(
         targetValue =
@@ -1012,6 +1023,15 @@ fun BottomSheetPlayer(
                 Column(
                     modifier = Modifier.weight(1f),
                 ) {
+                    playerQualityBadgeLabel?.let { label ->
+                        QualityBadge(
+                            label = label,
+                            containerColor = qualityBadgeContainerColor,
+                            contentColor = qualityBadgeContentColor,
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
+
                     AnimatedContent(
                         targetState = mediaMetadata.title,
                         transitionSpec = { fadeIn() togetherWith fadeOut() },
@@ -2207,6 +2227,112 @@ fun MoreActionsButton(
             painter = painterResource(R.drawable.more_horiz),
             contentDescription = null,
             colorFilter = ColorFilter.tint(iconButtonColor),
+        )
+    }
+}
+
+private fun FormatEntity.toPlayerFormatSummary(): String? {
+    val codec = when {
+        isAlacFormat() -> "ALAC"
+        isFlacFormat() -> "FLAC"
+        isMp3Format() -> "MP3"
+        isAacFormat() -> "AAC"
+        else -> return null
+    }
+    val bitrateText = formatBitrateLabel(bitrate)
+    val sampleRateText = sampleRate
+        ?.takeIf { it > 0 }
+        ?.let(::formatSampleRateLabel)
+    return listOfNotNull(codec, bitrateText, sampleRateText).joinToString(" - ")
+}
+
+private fun FormatEntity.toPlayerQualityBadgeLabel(): String? {
+    val sampleRateText = sampleRate
+        ?.takeIf { it > 0 }
+        ?.let { " (${formatSampleRateLabel(it)})" }
+        .orEmpty()
+
+    return when {
+        isLosslessFormat() -> {
+            if ((sampleRate ?: 0) > 48_000) {
+                "Hi-Res Lossless$sampleRateText"
+            } else {
+                "CD$sampleRateText"
+            }
+        }
+        isAacFormat() -> "AAC ${formatBitrateLabel(bitrate, fallback = 320_000)}"
+        isMp3Format() -> "MP3 ${formatBitrateLabel(bitrate, fallback = 320_000)}"
+        else -> null
+    }
+}
+
+private fun FormatEntity.isLosslessFormat(): Boolean = isFlacFormat() || isAlacFormat()
+
+private fun FormatEntity.isFlacFormat(): Boolean =
+    codecs.contains("flac", ignoreCase = true) ||
+        mimeType.contains("flac", ignoreCase = true)
+
+private fun FormatEntity.isAlacFormat(): Boolean =
+    codecs.contains("alac", ignoreCase = true) ||
+        mimeType.contains("alac", ignoreCase = true)
+
+private fun FormatEntity.isAacFormat(): Boolean =
+    codecs.contains("mp4a", ignoreCase = true) ||
+        codecs.contains("aac", ignoreCase = true) ||
+        mimeType.contains("aac", ignoreCase = true) ||
+        mimeType.contains("mp4", ignoreCase = true)
+
+private fun FormatEntity.isMp3Format(): Boolean =
+    codecs.contains("mp3", ignoreCase = true) ||
+        mimeType.contains("mpeg", ignoreCase = true)
+
+private fun formatBitrateLabel(
+    bitrate: Int,
+    fallback: Int? = null,
+): String? {
+    val safeBitrate = bitrate.takeIf { it > 0 } ?: fallback ?: return null
+    return "${(safeBitrate / 1000).coerceAtLeast(1)} kbps"
+}
+
+private fun formatSampleRateLabel(sampleRate: Int): String {
+    val wholeKhz = sampleRate / 1000
+    val decimal = (sampleRate % 1000) / 100
+    return if (decimal == 0) {
+        "$wholeKhz kHz"
+    } else {
+        "$wholeKhz.$decimal kHz"
+    }
+}
+
+@Composable
+private fun QualityBadge(
+    label: String,
+    containerColor: Color,
+    contentColor: Color,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier =
+            modifier
+                .clip(RoundedCornerShape(16.dp))
+                .background(containerColor)
+                .padding(horizontal = 13.dp, vertical = 7.dp),
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.waveform),
+            contentDescription = null,
+            tint = contentColor,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = label,
+            color = contentColor,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
