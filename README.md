@@ -8,40 +8,8 @@
 
 <br/>
 
-[![Latest release](https://img.shields.io/github/v/release/956tris/MetroApple?style=for-the-badge&labelColor=0d1117)](https://github.com/956tris/MetroApple/releases)
-[![License](https://img.shields.io/github/license/956tris/MetroApple?style=for-the-badge&labelColor=0d1117)](https://github.com/956tris/MetroApple/blob/main/LICENSE)
-[![Downloads](https://img.shields.io/github/downloads/956tris/MetroApple/total?style=for-the-badge&labelColor=0d1117)](https://github.com/956tris/MetroApple/releases)
-
-<br/>
-
-[![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white&labelColor=0d1117)](https://dsc.gg/metrolist)
-[![Telegram](https://img.shields.io/badge/Telegram-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white&labelColor=0d1117)](https://t.me/metrolistapp)
-
-<br/>
-
-[**Download**](#download-now) - [**Features**](#features) - [**Translate**](#translations) - [**FAQ**](#faq) - [**Support**](#support-the-project)
-
-</div>
-
 > [!WARNING]
 > Regional restriction: if YouTube Music is unavailable in your region, this app will not work without a **VPN or proxy** connecting to a supported region.
-
----
-
-<div align="center">
-
-<h1><a id="screenshots"></a>Screenshots</h1>
-
-<img src="https://raw.githubusercontent.com/956tris/MetroApple/main/fastlane/metadata/android/en-US/images/screenshots/screenshot_1.png" alt="Home screen" width="30%" />
-<img src="https://raw.githubusercontent.com/956tris/MetroApple/main/fastlane/metadata/android/en-US/images/screenshots/screenshot_2.png" alt="Artist screen" width="30%" />
-<img src="https://raw.githubusercontent.com/956tris/MetroApple/main/fastlane/metadata/android/en-US/images/screenshots/screenshot_3.png" alt="Recognize music screen" width="30%" />
-<img src="https://raw.githubusercontent.com/956tris/MetroApple/main/fastlane/metadata/android/en-US/images/screenshots/screenshot_4.png" alt="Listen together screen" width="30%" />
-<img src="https://raw.githubusercontent.com/956tris/MetroApple/main/fastlane/metadata/android/en-US/images/screenshots/screenshot_5.png" alt="Player screen" width="30%" />
-<img src="https://raw.githubusercontent.com/956tris/MetroApple/main/fastlane/metadata/android/en-US/images/screenshots/screenshot_6.png" alt="Player lyrics screen" width="30%" />
-
-</div>
-
----
 
 <div align="center">
 
