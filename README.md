@@ -89,4 +89,4 @@
 
 <h1><a id="credits"></a>Credits</h1>
 
-- 956tris for developing the initial framework in his [MetroApple](https://github.com/956tris/MetroApple)
+- 956tris for developing the initial framework, and for the Apple Music animated artwork in his [MetroApple](https://github.com/956tris/MetroApple)
