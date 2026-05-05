@@ -23,7 +23,10 @@ Qobuz backend replacement for Metrolist
 - not all songs are listed in qobuz, so they either don't play at all or fallback to youtube
 - amazingly, that’s it for now
 
-
+---
+### TODO
+- fix downloads
+- fix song searching bug
 ---
 
 ## Credits
