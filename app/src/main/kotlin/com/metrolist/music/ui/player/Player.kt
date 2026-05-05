@@ -2233,10 +2233,10 @@ fun MoreActionsButton(
 
 private fun FormatEntity.toPlayerFormatSummary(): String? {
     val codec = when {
-        isAlacFormat() -> "ALAC"
-        isFlacFormat() -> "FLAC"
-        isMp3Format() -> "MP3"
-        isAacFormat() -> "AAC"
+        isAlacFormat() -> "ALAC" //TODO: remove this, we dont use ALAC
+        isFlacFormat() -> "FLAC" //qobuz CD and Hi-res format
+        isMp3Format() -> "MP3" //qobuz 320kbps format
+        isAacFormat() -> "AAC" //stupid shit for yt music
         else -> return null
     }
     val bitrateText = formatBitrateLabel(bitrate)
@@ -2257,7 +2257,7 @@ private fun FormatEntity.toPlayerQualityBadgeLabel(): String? {
             if ((sampleRate ?: 0) > 48_000) {
                 "Hi-Res Lossless$sampleRateText"
             } else {
-                "CD$sampleRateText"
+                "CD Quality$sampleRateText"
             }
         }
         isAacFormat() -> "AAC ${formatBitrateLabel(bitrate, fallback = 320_000)}"
