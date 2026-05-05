@@ -9,12 +9,12 @@ import android.content.Context
 import androidx.core.net.toUri
 import androidx.media3.database.DatabaseProvider
 import androidx.media3.datasource.ResolvingDataSource
-import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadNotificationHelper
+import androidx.media3.exoplayer.offline.DownloadRequest
 import com.metrolist.music.constants.AudioQuality
 import com.metrolist.music.constants.AudioQualityKey
 import com.metrolist.music.constants.QobuzBackend
@@ -24,7 +24,6 @@ import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.db.entities.FormatEntity
 import com.metrolist.music.db.entities.Song
 import com.metrolist.music.di.DownloadCache
-import com.metrolist.music.di.PlayerCache
 import com.metrolist.music.extensions.toEnum
 import com.metrolist.music.qobuz.QobuzAudioProvider
 import com.metrolist.music.utils.dataStore
@@ -51,6 +50,36 @@ import java.util.concurrent.Executor
 import javax.inject.Inject
 import javax.inject.Singleton
 
+private const val DOWNLOAD_REQUEST_CACHE_PREFIX = "download-request-v1:"
+
+fun buildManagedDownloadRequest(
+    context: Context,
+    mediaId: String,
+    title: String,
+): DownloadRequest {
+    val requestedQualityCode = currentRequestedQobuzQualityCode(context)
+    return DownloadRequest
+        .Builder(mediaId, mediaId.toUri())
+        .setCustomCacheKey("$DOWNLOAD_REQUEST_CACHE_PREFIX$requestedQualityCode:$mediaId")
+        .setData(title.toByteArray())
+        .build()
+}
+
+fun managedMediaIdFromCacheKey(key: String): String = key.substringAfterLast(':', key)
+
+internal fun managedRequestedQualityCodeFromCacheKey(key: String): Int? {
+    if (!key.startsWith(DOWNLOAD_REQUEST_CACHE_PREFIX)) return null
+    return key
+        .removePrefix(DOWNLOAD_REQUEST_CACHE_PREFIX)
+        .substringBefore(':')
+        .toIntOrNull()
+}
+
+internal fun currentRequestedQobuzQualityCode(context: Context): Int {
+    val audioQuality = context.dataStore.get(AudioQualityKey).toEnum(AudioQuality.HI_RES_LOSSLESS)
+    return QobuzAudioProvider.qualityCodeFor(audioQuality)
+}
+
 @Singleton
 class DownloadUtil
 @Inject
@@ -59,7 +88,6 @@ constructor(
     val database: MusicDatabase,
     val databaseProvider: DatabaseProvider,
     @DownloadCache val downloadCache: SimpleCache,
-    @PlayerCache val playerCache: SimpleCache,
 ) {
     private val TAG = "DownloadUtil"
     private data class CachedSongStream(
@@ -84,36 +112,34 @@ constructor(
 
     private val dataSourceFactory =
         ResolvingDataSource.Factory(
-            CacheDataSource
-                .Factory()
-                .setCache(playerCache)
-                .setUpstreamDataSourceFactory(
-                    OkHttpDataSource.Factory(
-                        OkHttpClient
-                            .Builder()
-                            .addInterceptor { chain ->
-                                var request = chain.request()
-                                if (request.url.queryParameter(YouTubeAudioProvider.STREAM_MARKER_QUERY) != null) {
-                                    val clientName = request.url.queryParameter(YouTubeAudioProvider.STREAM_MARKER_QUERY)
-                                    val cleanUrl =
-                                        request.url
-                                            .newBuilder()
-                                            .removeAllQueryParameters(YouTubeAudioProvider.STREAM_MARKER_QUERY)
-                                            .build()
-                                    request =
-                                        YouTubeAudioProvider.addYouTubePlaybackHeaders(
-                                            request.newBuilder().url(cleanUrl),
-                                            clientName,
-                                            request.header("Range") != null,
-                                        ).build()
-                                }
-                                chain.proceed(request)
-                            }.build(),
-                    ),
-                ),
+            OkHttpDataSource.Factory(
+                OkHttpClient
+                    .Builder()
+                    .addInterceptor { chain ->
+                        var request = chain.request()
+                        if (request.url.queryParameter(YouTubeAudioProvider.STREAM_MARKER_QUERY) != null) {
+                            val clientName = request.url.queryParameter(YouTubeAudioProvider.STREAM_MARKER_QUERY)
+                            val cleanUrl =
+                                request.url
+                                    .newBuilder()
+                                    .removeAllQueryParameters(YouTubeAudioProvider.STREAM_MARKER_QUERY)
+                                    .build()
+                            request =
+                                YouTubeAudioProvider.addYouTubePlaybackHeaders(
+                                    request.newBuilder().url(cleanUrl),
+                                    clientName,
+                                    request.header("Range") != null,
+                                ).build()
+                        }
+                        chain.proceed(request)
+                    }.build(),
+            ),
         ) { dataSpec ->
-            val mediaId = dataSpec.key?.let(::mediaIdFromDataSpecKey) ?: error("No media id")
-            val streamSelectionKey = currentQobuzSelectionKey(context)
+            val requestKey = dataSpec.key ?: error("No media id")
+            val mediaId = managedMediaIdFromCacheKey(requestKey)
+            val requestedQualityCode = managedRequestedQualityCodeFromCacheKey(requestKey)
+                ?: currentRequestedQobuzQualityCode(context)
+            val streamSelectionKey = currentQobuzSelectionKey(context, requestedQualityCode)
 
             val song = database.getSongByIdBlocking(mediaId)
             if (song?.song?.isLocal == true || song?.song?.isEpisode == true) {
@@ -134,7 +160,7 @@ constructor(
             }
 
             val resolved = runBlocking(Dispatchers.IO) {
-                resolveDownloadStream(context, mediaId, song)
+                resolveDownloadStream(context, mediaId, song, requestedQualityCode)
             }
 
             database.query {
@@ -157,9 +183,11 @@ constructor(
                 .build()
         }
 
-    private fun currentQobuzSelectionKey(context: Context): String {
+    private fun currentQobuzSelectionKey(
+        context: Context,
+        requestedQualityCode: Int,
+    ): String {
         val backend = context.dataStore.get(QobuzBackendKey).toEnum(QobuzBackend.JUMO)
-        val audioQuality = context.dataStore.get(AudioQualityKey).toEnum(AudioQuality.HI_RES_LOSSLESS)
         val country = context.dataStore.get(QobuzCountryKey, "US")
             .trim()
             .uppercase(Locale.US)
@@ -168,7 +196,7 @@ constructor(
         return listOf(
             "backend=${backend.name}",
             "country=$country",
-            "quality=${QobuzAudioProvider.qualityCodeFor(audioQuality)}",
+            "quality=$requestedQualityCode",
         ).joinToString(";")
     }
 
@@ -176,8 +204,9 @@ constructor(
         context: Context,
         mediaId: String,
         song: Song?,
+        requestedQualityCode: Int,
     ): DownloadStreamResolution {
-        val qobuzQuery = buildQobuzQuery(context, mediaId, song)
+        val qobuzQuery = buildQobuzQuery(context, mediaId, song, requestedQualityCode)
         val qobuzAttempt = runCatching {
             QobuzAudioProvider.resolve(qobuzQuery)
         }
@@ -185,7 +214,7 @@ constructor(
             return DownloadStreamResolution(
                 uri = resolved.mediaUri,
                 expiresAtMs = resolved.expiresAtMs,
-                cacheKey = qobuzFallbackCacheKey(mediaId),
+                cacheKey = qobuzFallbackCacheKey(mediaId, requestedQualityCode),
                 format = qobuzFallbackFormat(mediaId, resolved),
             )
         }
@@ -228,9 +257,9 @@ constructor(
         context: Context,
         mediaId: String,
         song: Song?,
+        requestedQualityCode: Int,
     ): QobuzAudioProvider.Query {
         val backend = context.dataStore.get(QobuzBackendKey).toEnum(QobuzBackend.JUMO)
-        val audioQuality = context.dataStore.get(AudioQualityKey).toEnum(AudioQuality.HI_RES_LOSSLESS)
         val country = context.dataStore.get(QobuzCountryKey, "US")
             .trim()
             .uppercase(Locale.US)
@@ -251,7 +280,7 @@ constructor(
                 QobuzBackend.JUMO -> QobuzAudioProvider.ResolverBackend.JUMO
                 QobuzBackend.SQUID -> QobuzAudioProvider.ResolverBackend.SQUID
             },
-            qualityCode = QobuzAudioProvider.qualityCodeFor(audioQuality),
+            qualityCode = requestedQualityCode,
         )
     }
 
@@ -338,17 +367,23 @@ constructor(
     private companion object {
         private const val QOBUZ_FALLBACK_ITAG = 100_027
         private const val OLD_QOBUZ_FALLBACK_CACHE_PREFIX = "qobuz-stream:"
-        private const val QOBUZ_FALLBACK_CACHE_PREFIX = "qobuz-stream-v2:"
+        private const val OLD_QOBUZ_FALLBACK_CACHE_PREFIX_V2 = "qobuz-stream-v2:"
+        private const val QOBUZ_FALLBACK_CACHE_PREFIX = "qobuz-stream-v3:"
         private const val YOUTUBE_FALLBACK_CACHE_PREFIX = "youtube-fallback-aac:"
 
-        private fun qobuzFallbackCacheKey(mediaId: String) = "$QOBUZ_FALLBACK_CACHE_PREFIX$mediaId"
+        private fun qobuzFallbackCacheKey(
+            mediaId: String,
+            requestedQualityCode: Int,
+        ) = "$QOBUZ_FALLBACK_CACHE_PREFIX$requestedQualityCode:$mediaId"
 
         private fun youtubeFallbackCacheKey(mediaId: String) = "$YOUTUBE_FALLBACK_CACHE_PREFIX$mediaId"
 
         private fun mediaIdFromDataSpecKey(key: String) = key
             .removePrefix(OLD_QOBUZ_FALLBACK_CACHE_PREFIX)
+            .removePrefix(OLD_QOBUZ_FALLBACK_CACHE_PREFIX_V2)
             .removePrefix(QOBUZ_FALLBACK_CACHE_PREFIX)
             .removePrefix(YOUTUBE_FALLBACK_CACHE_PREFIX)
+            .let(::managedMediaIdFromCacheKey)
 
         private fun qobuzFallbackFormat(
             mediaId: String,

@@ -338,7 +338,7 @@ object QobuzAudioProvider {
 
         val candidates = mutableListOf<Candidate>()
         val evaluated = mutableListOf<EvaluatedCandidate>()
-        val minAcceptScore = if (query.backend == ResolverBackend.JUMO) 150 else 260
+        val minAcceptScore = if (query.backend == ResolverBackend.JUMO) 300 else 330
         for (index in 0 until results.length()) {
             val obj = results.optJSONObject(index) ?: continue
             val downloadable = obj.optBoolean("downloadable", false)
@@ -360,9 +360,30 @@ object QobuzAudioProvider {
             val hires = obj.optBoolean("hires", false)
             val bitDepth = obj.intOrNull("maximum_bit_depth")
             val samplingRate = obj.doubleOrNull("maximum_sampling_rate")
+            val candidateTitleTokens = significantTokens(candidateCombinedTitle)
+            val matchedTitleTokens = wantedTitleTokens.count(candidateTitleTokens::contains)
+            val titleRecall = if (wantedTitleTokens.isEmpty()) 1.0 else matchedTitleTokens.toDouble() / wantedTitleTokens.size
+            val titlePrecision = if (candidateTitleTokens.isEmpty()) 0.0 else matchedTitleTokens.toDouble() / candidateTitleTokens.size
+            val exactArtistMatches = wantedArtists.count { wanted -> candidateArtists.any { it == wanted } }
+            val partialArtistMatches = wantedArtists.count { wanted ->
+                candidateArtists.any { candidate -> artistNamesMatch(wanted, candidate) }
+            }
 
             val versionPenalty = versionMismatchPenalty(wantedDescriptorText, candidateCombinedTitle)
             if (versionPenalty <= REJECT_SCORE) continue
+            if (!titleTokensPass(
+                    wantedTitle = wantedTitle,
+                    candidateTitle = candidateCombinedTitle,
+                    wantedTokens = wantedTitleTokens,
+                    matchedTokenCount = matchedTitleTokens,
+                    recall = titleRecall,
+                    precision = titlePrecision,
+                )
+            ) {
+                continue
+            }
+            if (wantedArtists.isNotEmpty() && exactArtistMatches == 0 && partialArtistMatches == 0) continue
+            if (wantedDurationSec != null && candidateDuration != null && abs(wantedDurationSec - candidateDuration) > 25) continue
 
             var score = 0
             score += versionPenalty
@@ -373,52 +394,48 @@ object QobuzAudioProvider {
 
             if (wantedTitle.isNotBlank()) {
                 score += when {
-                    candidateTitle == wantedTitle -> 320
-                    candidateCombinedTitle.contains(wantedTitle) || wantedTitle.contains(candidateTitle) -> 130
-                    wantedTitle.wordsOverlap(candidateCombinedTitle) >= 2 -> 60
-                    else -> -80
+                    candidateTitle == wantedTitle -> 360
+                    candidateCombinedTitle == wantedTitle -> 340
+                    candidateCombinedTitle.contains(wantedTitle) || wantedTitle.contains(candidateTitle) -> 180
+                    wantedTitle.wordsOverlap(candidateCombinedTitle) >= 3 -> 110
+                    else -> -120
                 }
             }
 
             if (wantedTitleTokens.isNotEmpty()) {
-                val candidateTokens = significantTokens(candidateCombinedTitle)
-                val matchedTokens = wantedTitleTokens.count(candidateTokens::contains)
                 when {
-                    matchedTokens == wantedTitleTokens.size -> score += 120
-                    matchedTokens >= wantedTitleTokens.size.coerceAtLeast(1) - 1 -> score += 40
-                    wantedTitleTokens.size <= 2 -> score -= 160
-                    else -> score -= 60
+                    matchedTitleTokens == wantedTitleTokens.size -> score += 180
+                    matchedTitleTokens >= wantedTitleTokens.size.coerceAtLeast(1) - 1 -> score += 70
+                    matchedTitleTokens >= wantedTitleTokens.size.coerceAtLeast(3) - 2 -> score -= 20
+                    else -> score -= 180
                 }
             }
 
             if (wantedAlbum.isNotBlank() && candidateAlbum.isNotBlank()) {
                 score += when {
-                    candidateAlbum == wantedAlbum -> 180
-                    candidateAlbum.contains(wantedAlbum) || wantedAlbum.contains(candidateAlbum) -> 80
+                    candidateAlbum == wantedAlbum -> 160
+                    candidateAlbum.contains(wantedAlbum) || wantedAlbum.contains(candidateAlbum) -> 60
                     wantedAlbum.wordsOverlap(candidateAlbum) >= 2 -> 35
-                    else -> -35
+                    else -> -50
                 }
             }
 
             if (wantedArtists.isNotEmpty()) {
-                val exactMatches = wantedArtists.count { it in candidateArtists }
                 score += when {
-                    exactMatches > 0 -> 220 + ((exactMatches - 1) * 50)
-                    wantedArtists.any { wanted ->
-                        candidateArtists.any { candidate -> candidate.contains(wanted) || wanted.contains(candidate) }
-                    } -> 90
-                    else -> if (query.backend == ResolverBackend.JUMO) -120 else REJECT_SCORE
+                    exactArtistMatches > 0 -> 260 + ((exactArtistMatches - 1) * 55)
+                    partialArtistMatches > 0 -> 120 + ((partialArtistMatches - 1) * 40)
+                    else -> REJECT_SCORE
                 }
             }
 
             if (wantedDurationSec != null && candidateDuration != null) {
                 val diff = abs(wantedDurationSec - candidateDuration)
                 score += when {
-                    diff <= 2 -> 160
-                    diff <= 5 -> 100
-                    diff <= 10 -> 45
-                    diff >= 30 -> -120
-                    else -> 0
+                    diff <= 2 -> 180
+                    diff <= 5 -> 120
+                    diff <= 10 -> 50
+                    diff <= 15 -> 10
+                    else -> -90
                 }
             }
 
@@ -875,6 +892,39 @@ object QobuzAudioProvider {
             .map { it.trim() }
             .filter { it.length > 1 && it !in stopWords }
             .toSet()
+    }
+
+    private fun titleTokensPass(
+        wantedTitle: String,
+        candidateTitle: String,
+        wantedTokens: Set<String>,
+        matchedTokenCount: Int,
+        recall: Double,
+        precision: Double,
+    ): Boolean {
+        if (wantedTokens.isEmpty()) return true
+        if (candidateTitle == wantedTitle || candidateTitle.contains(wantedTitle)) return true
+        return when {
+            wantedTokens.size <= 2 -> matchedTokenCount == wantedTokens.size
+            wantedTokens.size <= 4 -> matchedTokenCount >= wantedTokens.size - 1 && recall >= 0.75 && precision >= 0.45
+            wantedTokens.size <= 7 -> matchedTokenCount >= maxOf(3, wantedTokens.size - 2) && recall >= 0.6 && precision >= 0.4
+            else -> matchedTokenCount >= maxOf(4, (wantedTokens.size * 3) / 5) && recall >= 0.6 && precision >= 0.35
+        }
+    }
+
+    private fun artistNamesMatch(
+        wantedArtist: String,
+        candidateArtist: String,
+    ): Boolean {
+        if (wantedArtist == candidateArtist) return true
+        if (wantedArtist.contains(candidateArtist) || candidateArtist.contains(wantedArtist)) {
+            return minOf(wantedArtist.length, candidateArtist.length) >= 5
+        }
+        val wantedTokens = significantTokens(wantedArtist)
+        val candidateTokens = significantTokens(candidateArtist)
+        if (wantedTokens.isEmpty() || candidateTokens.isEmpty()) return false
+        val overlap = wantedTokens.intersect(candidateTokens).size
+        return overlap >= minOf(wantedTokens.size, candidateTokens.size).coerceAtMost(2)
     }
 
     private fun String?.normalized(): String {

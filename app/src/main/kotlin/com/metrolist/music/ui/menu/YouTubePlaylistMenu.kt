@@ -643,12 +643,11 @@ fun YouTubePlaylistMenu(
                                             },
                                             onClick = {
                                                 songs.forEach { song ->
-                                                    val downloadRequest =
-                                                        DownloadRequest
-                                                            .Builder(song.id, song.id.toUri())
-                                                            .setCustomCacheKey(song.id)
-                                                            .setData(song.title.toByteArray())
-                                                            .build()
+                                                    val downloadRequest = com.metrolist.music.playback.buildManagedDownloadRequest(
+                                                        context,
+                                                        song.id,
+                                                        song.title,
+                                                    )
                                                     DownloadService.sendAddDownload(
                                                         context,
                                                         ExoDownloadService::class.java,

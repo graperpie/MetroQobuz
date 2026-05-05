@@ -1030,12 +1030,11 @@ private fun AutoPlaylistHeader(
 
                                     else -> {
                                         songs.forEach { song ->
-                                            val downloadRequest =
-                                                DownloadRequest
-                                                    .Builder(song.song.id, song.song.id.toUri())
-                                                    .setCustomCacheKey(song.song.id)
-                                                    .setData(song.song.title.toByteArray())
-                                                    .build()
+                                            val downloadRequest = com.metrolist.music.playback.buildManagedDownloadRequest(
+                                                context,
+                                                song.song.id,
+                                                song.song.title,
+                                            )
                                             DownloadService.sendAddDownload(
                                                 context,
                                                 ExoDownloadService::class.java,

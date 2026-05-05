@@ -445,12 +445,11 @@ fun QueueMenu(
                                     database.transaction {
                                         insert(mediaMetadata)
                                     }
-                                    val downloadRequest =
-                                        DownloadRequest
-                                            .Builder(mediaMetadata.id, mediaMetadata.id.toUri())
-                                            .setCustomCacheKey(mediaMetadata.id)
-                                            .setData(mediaMetadata.title.toByteArray())
-                                            .build()
+                                    val downloadRequest = com.metrolist.music.playback.buildManagedDownloadRequest(
+                                        context,
+                                        mediaMetadata.id,
+                                        mediaMetadata.title,
+                                    )
                                     DownloadService.sendAddDownload(
                                         context,
                                         ExoDownloadService::class.java,

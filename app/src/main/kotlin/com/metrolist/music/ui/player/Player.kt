@@ -1874,8 +1874,8 @@ fun BottomSheetPlayer(
                         Text(
                             text = label,
                             color = TextBackgroundColor,
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Medium,
                             textAlign = TextAlign.Center,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -2317,19 +2317,19 @@ private fun QualityBadge(
             modifier
                 .clip(RoundedCornerShape(16.dp))
                 .background(containerColor)
-                .padding(horizontal = 13.dp, vertical = 7.dp),
+                .padding(horizontal = 10.dp, vertical = 5.dp),
     ) {
         Icon(
             painter = painterResource(R.drawable.waveform),
             contentDescription = null,
             tint = contentColor,
-            modifier = Modifier.size(18.dp),
+            modifier = Modifier.size(14.dp),
         )
-        Spacer(modifier = Modifier.width(8.dp))
+        Spacer(modifier = Modifier.width(6.dp))
         Text(
             text = label,
             color = contentColor,
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,

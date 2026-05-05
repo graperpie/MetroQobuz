@@ -58,6 +58,7 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.CacheDataSource.FLAG_BLOCK_ON_CACHE
 import androidx.media3.datasource.cache.CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.datasource.okhttp.OkHttpDataSource
@@ -730,12 +731,7 @@ class MusicService :
                     // CRITICAL: Clear caches synchronously to prevent format parsing errors
                     runBlocking(Dispatchers.IO) {
                         try {
-                            playerCache.removeResource(mediaId)
-                            playerCache.removeResource(qobuzFallbackCacheKey(mediaId))
-                            playerCache.removeResource(youtubeFallbackCacheKey(mediaId))
-                            downloadCache.removeResource(mediaId)
-                            downloadCache.removeResource(qobuzFallbackCacheKey(mediaId))
-                            downloadCache.removeResource(youtubeFallbackCacheKey(mediaId))
+                            clearManagedCaches(mediaId)
                             Timber.tag("MusicService").d("Cleared player and download cache for $mediaId")
                         } catch (e: Exception) {
                             Timber.tag("MusicService").e(e, "Failed to clear cache for $mediaId")
@@ -1872,12 +1868,7 @@ class MusicService :
                     // Check if auto-download on like is enabled and the song is now liked
                     if (dataStore.get(AutoDownloadOnLikeKey, false) && song.liked) {
                         // Trigger download for the liked song
-                        val downloadRequest =
-                            androidx.media3.exoplayer.offline.DownloadRequest
-                                .Builder(song.id, song.id.toUri())
-                                .setCustomCacheKey(song.id)
-                                .setData(song.title.toByteArray())
-                                .build()
+                        val downloadRequest = buildManagedDownloadRequest(this@MusicService, song.id, song.title)
                         androidx.media3.exoplayer.offline.DownloadService.sendAddDownload(
                             this@MusicService,
                             ExoDownloadService::class.java,
@@ -2797,12 +2788,7 @@ class MusicService :
 
         // Clear player cache
         try {
-            playerCache.removeResource(mediaId)
-            playerCache.removeResource(qobuzFallbackCacheKey(mediaId))
-            playerCache.removeResource(youtubeFallbackCacheKey(mediaId))
-            downloadCache.removeResource(mediaId)
-            downloadCache.removeResource(qobuzFallbackCacheKey(mediaId))
-            downloadCache.removeResource(youtubeFallbackCacheKey(mediaId))
+            clearManagedCaches(mediaId)
             Timber.tag(TAG).d("Cleared player cache for $mediaId")
         } catch (e: Exception) {
             Timber.tag(TAG).e(e, "Failed to clear player cache for $mediaId")
@@ -3165,9 +3151,10 @@ class MusicService :
                                     }.build(),
                             ),
                         ),
-                    ),
+                    )
+                    .setFlags(FLAG_IGNORE_CACHE_ON_ERROR or FLAG_BLOCK_ON_CACHE),
             ).setCacheWriteDataSinkFactory(null)
-            .setFlags(FLAG_IGNORE_CACHE_ON_ERROR)
+            .setFlags(FLAG_IGNORE_CACHE_ON_ERROR or FLAG_BLOCK_ON_CACHE)
 
     // Flag to prevent queue saving during silence skip operations
     private var isSilenceSkipping = false
@@ -3263,8 +3250,7 @@ class MusicService :
     }
 
     private fun createDataSourceFactory(): DataSource.Factory {
-        val baseDataSourceFactory = DefaultDataSource.Factory(this, OkHttpDataSource.Factory(OkHttpClient()))
-        return ResolvingDataSource.Factory(baseDataSourceFactory) { dataSpec ->
+        return ResolvingDataSource.Factory(createCacheDataSource()) { dataSpec ->
             val mediaId = dataSpec.key?.let(::mediaIdFromDataSpecKey) ?: error("No media id")
             val song = database.getSongByIdBlocking(mediaId)
             val streamSelectionKey = currentQobuzSelectionKey()
@@ -3286,12 +3272,7 @@ class MusicService :
                     .build()
             } ?: run {
                 if (songUrlCache.remove(mediaId) != null) {
-                    playerCache.removeResource(mediaId)
-                    playerCache.removeResource(qobuzFallbackCacheKey(mediaId))
-                    playerCache.removeResource(youtubeFallbackCacheKey(mediaId))
-                    downloadCache.removeResource(mediaId)
-                    downloadCache.removeResource(qobuzFallbackCacheKey(mediaId))
-                    downloadCache.removeResource(youtubeFallbackCacheKey(mediaId))
+                    clearManagedCaches(mediaId)
                 }
             }
 
@@ -3382,7 +3363,7 @@ class MusicService :
                 return PlaybackStreamResolution(
                     uri = resolved.mediaUri,
                     expiresAtMs = resolved.expiresAtMs,
-                    cacheKey = qobuzFallbackCacheKey(mediaId),
+                    cacheKey = qobuzFallbackCacheKey(mediaId, qobuzQuery.qualityCode),
                     format = qobuzFallbackFormat(mediaId, resolved),
                 )
             }
@@ -3461,6 +3442,18 @@ class MusicService :
             backend = backend.toQobuzProviderBackend(),
             qualityCode = QobuzAudioProvider.qualityCodeFor(audioQuality),
         )
+    }
+
+    private fun clearManagedCaches(mediaId: String) {
+        val keysToRemove = buildList {
+            add(mediaId)
+            add(youtubeFallbackCacheKey(mediaId))
+            addAll(qobuzFallbackCacheKeys(mediaId))
+        }
+        keysToRemove.forEach { cacheKey ->
+            playerCache.removeResource(cacheKey)
+            downloadCache.removeResource(cacheKey)
+        }
     }
 
     private fun QobuzBackend.toQobuzProviderBackend(): QobuzAudioProvider.ResolverBackend {
@@ -4345,17 +4338,31 @@ class MusicService :
         private const val PRIVATE_STREAM_MARKER = "_metrolist_private"
         private const val QOBUZ_FALLBACK_ITAG = 100_027
         private const val OLD_QOBUZ_FALLBACK_CACHE_PREFIX = "qobuz-fallback:"
-        private const val QOBUZ_FALLBACK_CACHE_PREFIX = "qobuz-fallback-v2:"
+        private const val OLD_QOBUZ_FALLBACK_CACHE_PREFIX_V2 = "qobuz-fallback-v2:"
+        private const val QOBUZ_FALLBACK_CACHE_PREFIX = "qobuz-fallback-v3:"
         private const val YOUTUBE_FALLBACK_CACHE_PREFIX = "youtube-fallback-aac:"
 
-        private fun qobuzFallbackCacheKey(mediaId: String) = "$QOBUZ_FALLBACK_CACHE_PREFIX$mediaId"
+        private fun qobuzFallbackCacheKey(
+            mediaId: String,
+            requestedQualityCode: Int,
+        ) = "$QOBUZ_FALLBACK_CACHE_PREFIX$requestedQualityCode:$mediaId"
+
+        private fun qobuzFallbackCacheKeys(mediaId: String) = buildList {
+            add("$OLD_QOBUZ_FALLBACK_CACHE_PREFIX$mediaId")
+            add("$OLD_QOBUZ_FALLBACK_CACHE_PREFIX_V2$mediaId")
+            listOf(5, 6, 27).forEach { qualityCode ->
+                add(qobuzFallbackCacheKey(mediaId, qualityCode))
+            }
+        }
 
         private fun youtubeFallbackCacheKey(mediaId: String) = "$YOUTUBE_FALLBACK_CACHE_PREFIX$mediaId"
 
         private fun mediaIdFromDataSpecKey(key: String) = key
             .removePrefix(OLD_QOBUZ_FALLBACK_CACHE_PREFIX)
+            .removePrefix(OLD_QOBUZ_FALLBACK_CACHE_PREFIX_V2)
             .removePrefix(QOBUZ_FALLBACK_CACHE_PREFIX)
             .removePrefix(YOUTUBE_FALLBACK_CACHE_PREFIX)
+            .let(::managedMediaIdFromCacheKey)
 
         private fun qobuzFallbackFormat(
             mediaId: String,
