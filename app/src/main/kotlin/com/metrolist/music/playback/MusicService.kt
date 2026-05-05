@@ -71,6 +71,11 @@ import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.audio.SilenceSkippingAudioProcessor
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
+import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
+import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.FallbackOptions
+import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.FallbackSelection
+import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
@@ -92,6 +97,8 @@ import com.metrolist.music.constants.AndroidAutoTargetPlaylistKey
 import com.metrolist.music.constants.AudioNormalizationKey
 import com.metrolist.music.constants.AudioOffload
 import com.metrolist.music.constants.AudioQualityKey
+import com.metrolist.music.constants.WifiAudioQualityKey
+import com.metrolist.music.constants.MobileAudioQualityKey
 import com.metrolist.music.constants.AutoDownloadOnLikeKey
 import com.metrolist.music.constants.AutoLoadMoreKey
 import com.metrolist.music.constants.AutoSkipNextOnErrorKey
@@ -638,7 +645,10 @@ class MusicService :
 
         audioManager.registerAudioDeviceCallback(audioDeviceCallback, null)
 
-        audioQuality = dataStore.get(AudioQualityKey).toEnum(com.metrolist.music.constants.AudioQuality.HI_RES_LOSSLESS)
+        val isMeteredInitial = connectivityManager.isActiveNetworkMetered
+        val initialKey = if (isMeteredInitial) MobileAudioQualityKey else WifiAudioQualityKey
+        val globalDefault = dataStore.get(AudioQualityKey).toEnum(com.metrolist.music.constants.AudioQuality.HI_RES_LOSSLESS)
+        audioQuality = dataStore.get(initialKey).toEnum(globalDefault)
         playerVolume = MutableStateFlow(dataStore.get(PlayerVolumeKey, 1f).coerceIn(0f, 1f))
 
         // Initialize Google Cast
@@ -695,13 +705,22 @@ class MusicService :
         // Watch for audio quality setting changes
         var isFirstQualityEmit = true
         scope.launch {
-            dataStore.data
-                .map {
-                    it[AudioQualityKey]?.let { value ->
-                        com.metrolist.music.constants.AudioQuality.entries
-                            .find { it.name == value }
-                    } ?: com.metrolist.music.constants.AudioQuality.HI_RES_LOSSLESS
-                }.distinctUntilChanged()
+            combine(
+                dataStore.data,
+                connectivityObserver.networkStatus
+            ) { prefs, _ ->
+                val isMetered = connectivityManager.isActiveNetworkMetered
+                val key = if (isMetered) MobileAudioQualityKey else WifiAudioQualityKey
+
+                // Fallback to old AudioQualityKey if the new ones are not set
+                val oldQuality = prefs[AudioQualityKey]?.let { value ->
+                    com.metrolist.music.constants.AudioQuality.entries.find { it.name == value }
+                } ?: com.metrolist.music.constants.AudioQuality.HI_RES_LOSSLESS
+
+                prefs[key]?.let { value ->
+                    com.metrolist.music.constants.AudioQuality.entries.find { it.name == value }
+                } ?: oldQuality
+            }.distinctUntilChanged()
                 .collect { newQuality ->
                     val oldQuality = audioQuality
                     audioQuality = newQuality
@@ -3512,6 +3531,19 @@ class MusicService :
         DefaultMediaSourceFactory(
             createDataSourceFactory(),
             DefaultExtractorsFactory(),
+        ).setLoadErrorHandlingPolicy(
+            object : DefaultLoadErrorHandlingPolicy() {
+                override fun getFallbackSelectionFor(
+                    fallbackOptions: FallbackOptions,
+                    loadErrorInfo: LoadErrorInfo,
+                ): FallbackSelection? {
+                    // WORKAROUND: Disable HLS/Dash fallback to avoid internal ArrayIndexOutOfBoundsException
+                    // in Media3 1.10.0 (and potentially earlier) when handling load errors.
+                    // This forces the player to report a PlaybackException instead of crashing.
+                    Timber.tag(TAG).w("Fallback requested, disabling to prevent internal Media3 crash. Error: ${loadErrorInfo.exception.message}")
+                    return null
+                }
+            },
         )
 
     private fun createRenderersFactory(

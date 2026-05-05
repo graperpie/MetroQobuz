@@ -107,6 +107,8 @@ val UpdateNotificationsEnabledKey = booleanPreferencesKey("updateNotifications")
 val LastUpdateCheckTimeKey = longPreferencesKey("lastUpdateCheckTime")
 
 val AudioQualityKey = stringPreferencesKey("audioQuality")
+val WifiAudioQualityKey = stringPreferencesKey("wifiAudioQuality")
+val MobileAudioQualityKey = stringPreferencesKey("mobileAudioQuality")
 
 enum class AudioQuality {
     AAC_320,

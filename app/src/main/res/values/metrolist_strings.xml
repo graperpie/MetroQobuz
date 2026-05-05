@@ -862,7 +862,7 @@
     <!-- Credits / About Screen -->
     <string name="credits_lead_developer">Lead developer</string>
     <string name="credits_collaborator">Collaborator</string>
-    <string name="credits_collaborators_section">Collaborators</string>
+    <string name="credits_collaborators_section">Metrolist Developers</string>
     <string name="credits_license_name">GNU General Public License v3.0</string>
     <string name="credits_license_desc">Free, open-source software. You may use, study, share, and improve it</string>
     <string name="credits_discord">Discord server</string>
@@ -875,7 +875,7 @@
     <string name="like_what_i_do">Like what I do?</string>
     <string name="buy_mo_a_coffee">Buy me a coffee!</string>
     <string name="community_and_info">Community &amp; Info</string>
-    <string name="metrolist">METROLIST</string>
+    <string name="metrolist">METROQOBUZ</string>
     <string name="wanna_play_favorite_song">Want to play their favorite song?</string>
     <string name="yeah">Yeah!</string>
     <string name="stands_with_palestine">This project stands with Palestine 🇵🇸</string>
@@ -962,6 +962,8 @@
     <string name="audio_quality_cd_quality">CD Quality (44.1 kHz / 48 kHz)</string>
     <string name="audio_quality_hires_lossless">Hi-Res Lossless *</string>
     <string name="audio_quality_hires_notice">Hi-Res lossless may not be available on all tracks</string>
+    <string name="wifi_audio_quality">Wi-Fi audio quality</string>
+    <string name="mobile_audio_quality">Mobile data audio quality</string>
     <string name="autoplay">Autoplay</string>
     <string name="autoplay_desc">Automatically play the next song when the current one ends</string>
 

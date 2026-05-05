@@ -44,6 +44,8 @@ import com.metrolist.music.constants.AudioNormalizationKey
 import com.metrolist.music.constants.AudioOffload
 import com.metrolist.music.constants.AudioQuality
 import com.metrolist.music.constants.AudioQualityKey
+import com.metrolist.music.constants.MobileAudioQualityKey
+import com.metrolist.music.constants.WifiAudioQualityKey
 import com.metrolist.music.constants.AutoDownloadOnLikeKey
 import com.metrolist.music.constants.CrossfadeDurationKey
 import com.metrolist.music.constants.CrossfadeEnabledKey
@@ -105,6 +107,14 @@ fun PlayerSettings(
     val (audioQuality, onAudioQualityChange) = rememberEnumPreference(
         AudioQualityKey,
         defaultValue = AudioQuality.HI_RES_LOSSLESS
+    )
+    val (wifiAudioQuality, onWifiAudioQualityChange) = rememberEnumPreference(
+        WifiAudioQualityKey,
+        defaultValue = audioQuality
+    )
+    val (mobileAudioQuality, onMobileAudioQualityChange) = rememberEnumPreference(
+        MobileAudioQualityKey,
+        defaultValue = audioQuality
     )
     val (crossfadeEnabled, onCrossfadeEnabledChange) = rememberPreference(
         CrossfadeEnabledKey,
@@ -230,7 +240,10 @@ fun PlayerSettings(
         defaultValue = 30f
     )
 
-    var showAudioQualityDialog by remember {
+    var showWifiAudioQualityDialog by remember {
+        mutableStateOf(false)
+    }
+    var showMobileAudioQualityDialog by remember {
         mutableStateOf(false)
     }
     var showQobuzBackendDialog by remember {
@@ -244,15 +257,40 @@ fun PlayerSettings(
         mutableStateOf(false)
     }
 
-    if (showAudioQualityDialog) {
+    if (showWifiAudioQualityDialog) {
         EnumDialog(
-            onDismiss = { showAudioQualityDialog = false },
+            onDismiss = { showWifiAudioQualityDialog = false },
             onSelect = {
-                onAudioQualityChange(it)
-                showAudioQualityDialog = false
+                onWifiAudioQualityChange(it)
+                showWifiAudioQualityDialog = false
             },
-            title = stringResource(R.string.audio_quality),
-            current = audioQuality,
+            title = stringResource(R.string.wifi_audio_quality),
+            current = wifiAudioQuality,
+            values = AudioQuality.values().toList(),
+            valueText = { audioQualityLabel(it) },
+            footer = {
+                Text(
+                    text = stringResource(R.string.audio_quality_hires_notice),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp, vertical = 12.dp),
+                )
+            },
+        )
+    }
+
+    if (showMobileAudioQualityDialog) {
+        EnumDialog(
+            onDismiss = { showMobileAudioQualityDialog = false },
+            onSelect = {
+                onMobileAudioQualityChange(it)
+                showMobileAudioQualityDialog = false
+            },
+            title = stringResource(R.string.mobile_audio_quality),
+            current = mobileAudioQuality,
             values = AudioQuality.values().toList(),
             valueText = { audioQualityLabel(it) },
             footer = {
@@ -361,13 +399,23 @@ fun PlayerSettings(
             items = buildList {
                 add(Material3SettingsItem(
                     icon = painterResource(R.drawable.graphic_eq),
-                    title = { Text(stringResource(R.string.audio_quality)) },
+                    title = { Text(stringResource(R.string.wifi_audio_quality)) },
                     description = {
                         Text(
-                            audioQualityLabel(audioQuality)
+                            audioQualityLabel(wifiAudioQuality)
                         )
                     },
-                    onClick = { showAudioQualityDialog = true }
+                    onClick = { showWifiAudioQualityDialog = true }
+                ))
+                add(Material3SettingsItem(
+                    icon = painterResource(R.drawable.graphic_eq),
+                    title = { Text(stringResource(R.string.mobile_audio_quality)) },
+                    description = {
+                        Text(
+                            audioQualityLabel(mobileAudioQuality)
+                        )
+                    },
+                    onClick = { showMobileAudioQualityDialog = true }
                 ))
                 add(Material3SettingsItem(
                     icon = painterResource(R.drawable.settings),
