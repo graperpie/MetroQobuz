@@ -17,15 +17,15 @@ Qobuz backend replacement for Metrolist
 
 ## Known Issues
 - Occasional ExoPlayer crashes (i dont know why lol)
-- ~~Caching does not work (afaik)~~ it apparently does, it's just unoptimised and slow
-- lyrics may appear off-sync (not much i can do about this until further notice)
-- (rarely) select few songs can actually end up playing the wrong song, this is my fault, but i've tried to tune this to the best of my ability to prevent this
-- not all songs are listed in qobuz, so they either don't play at all or fallback to youtube
+- ~~Caching does not work (afaik)~~ FIXED
+- lyrics may appear off-sync in some songs (not much i can do about this until further notice)
+- (rarely) select few songs can actually end up falling back to youtube (AAC 128kbps) due to a bug in our song lookup algorithm.
+  - NOTE: this issue happens more often in songs that are less popular or have long names, or songs which are just not available on qobuz's catalog.
 - amazingly, that’s it for now
 
 ---
 ### TODO
-- fix downloads
+- ~~fix downloads~~ should be fixed
 - fix song searching bug
 ---
 
