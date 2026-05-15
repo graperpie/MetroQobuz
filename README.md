@@ -16,8 +16,8 @@ Qobuz backend replacement for Metrolist
 ---
 
 ## Known Issues
-- Occasional ExoPlayer crashes (i dont know why lol)
-- ~~Caching does not work (afaik)~~ FIXED
+- ~~Occasional ExoPlayer crashes (i dont know why lol)~~ FIXED (hopefully, report for more issues)
+- ~~Caching does not work (afaik)~~ FIXED, but songs in Cached folder still don't show. i don't know why
 - lyrics may appear off-sync in some songs (not much i can do about this until further notice)
 - (rarely) select few songs can actually end up falling back to youtube (AAC 128kbps) due to a bug in our song lookup algorithm.
   - NOTE: this issue happens more often in songs that are less popular or have long names, or songs which are just not available on qobuz's catalog.
