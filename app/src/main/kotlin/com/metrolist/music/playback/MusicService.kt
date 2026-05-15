@@ -3356,7 +3356,7 @@ class MusicService :
     }
 
     private fun currentQobuzSelectionKey(): String {
-        val backend = dataStore.get(QobuzBackendKey).toEnum(QobuzBackend.JUMO)
+        val backend = dataStore.get(QobuzBackendKey).toEnum(QobuzBackend.MONOKENNY)
         val country = dataStore.get(QobuzCountryKey, "US")
             .trim()
             .uppercase(Locale.US)
@@ -3443,7 +3443,7 @@ class MusicService :
             ?.toLong()
             ?.times(1000L)
             ?: queuedMetadata?.duration?.takeIf { it > 0 }?.toLong()?.times(1000L)
-        val backend = dataStore.get(QobuzBackendKey).toEnum(QobuzBackend.JUMO)
+        val backend = dataStore.get(QobuzBackendKey).toEnum(QobuzBackend.MONOKENNY)
         val country = dataStore.get(QobuzCountryKey, "US")
             .trim()
             .uppercase(Locale.US)
@@ -3477,6 +3477,7 @@ class MusicService :
 
     private fun QobuzBackend.toQobuzProviderBackend(): QobuzAudioProvider.ResolverBackend {
         return when (this) {
+            QobuzBackend.MONOKENNY -> QobuzAudioProvider.ResolverBackend.MONOKENNY
             QobuzBackend.JUMO -> QobuzAudioProvider.ResolverBackend.JUMO
             QobuzBackend.SQUID -> QobuzAudioProvider.ResolverBackend.SQUID
         }
@@ -3531,7 +3532,8 @@ class MusicService :
         DefaultMediaSourceFactory(
             createDataSourceFactory(),
             DefaultExtractorsFactory(),
-        ).setLoadErrorHandlingPolicy(
+        ).setLoadOnlySelectedTracks(true)
+            .setLoadErrorHandlingPolicy(
             object : DefaultLoadErrorHandlingPolicy() {
                 override fun getFallbackSelectionFor(
                     fallbackOptions: FallbackOptions,

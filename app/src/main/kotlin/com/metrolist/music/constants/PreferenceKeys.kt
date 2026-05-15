@@ -120,6 +120,7 @@ val QobuzBackendKey = stringPreferencesKey("qobuzBackend")
 val QobuzCountryKey = stringPreferencesKey("qobuzCountry")
 
 enum class QobuzBackend {
+    MONOKENNY,
     JUMO,
     SQUID,
 }

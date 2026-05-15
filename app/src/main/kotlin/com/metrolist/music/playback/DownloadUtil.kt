@@ -187,7 +187,7 @@ constructor(
         context: Context,
         requestedQualityCode: Int,
     ): String {
-        val backend = context.dataStore.get(QobuzBackendKey).toEnum(QobuzBackend.JUMO)
+        val backend = context.dataStore.get(QobuzBackendKey).toEnum(QobuzBackend.MONOKENNY)
         val country = context.dataStore.get(QobuzCountryKey, "US")
             .trim()
             .uppercase(Locale.US)
@@ -259,7 +259,7 @@ constructor(
         song: Song?,
         requestedQualityCode: Int,
     ): QobuzAudioProvider.Query {
-        val backend = context.dataStore.get(QobuzBackendKey).toEnum(QobuzBackend.JUMO)
+        val backend = context.dataStore.get(QobuzBackendKey).toEnum(QobuzBackend.MONOKENNY)
         val country = context.dataStore.get(QobuzCountryKey, "US")
             .trim()
             .uppercase(Locale.US)
@@ -277,6 +277,7 @@ constructor(
                 ?.times(1000L),
             countryCode = country,
             backend = when (backend) {
+                QobuzBackend.MONOKENNY -> QobuzAudioProvider.ResolverBackend.MONOKENNY
                 QobuzBackend.JUMO -> QobuzAudioProvider.ResolverBackend.JUMO
                 QobuzBackend.SQUID -> QobuzAudioProvider.ResolverBackend.SQUID
             },

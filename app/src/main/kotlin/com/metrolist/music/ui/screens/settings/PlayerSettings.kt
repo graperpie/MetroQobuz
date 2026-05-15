@@ -147,7 +147,7 @@ fun PlayerSettings(
 
     val (qobuzBackend, onQobuzBackendChange) = rememberEnumPreference(
         QobuzBackendKey,
-        defaultValue = QobuzBackend.JUMO
+        defaultValue = QobuzBackend.MONOKENNY
     )
     val (qobuzCountry, onQobuzCountryChange) = rememberPreference(
         QobuzCountryKey,
@@ -319,6 +319,7 @@ fun PlayerSettings(
             values = QobuzBackend.values().toList(),
             valueText = {
                 when (it) {
+                    QobuzBackend.MONOKENNY -> stringResource(R.string.qobuz_backend_monokenny)
                     QobuzBackend.JUMO -> stringResource(R.string.qobuz_backend_jumo)
                     QobuzBackend.SQUID -> stringResource(R.string.qobuz_backend_squid)
                 }
@@ -423,6 +424,7 @@ fun PlayerSettings(
                     description = {
                         Text(
                             when (qobuzBackend) {
+                                QobuzBackend.MONOKENNY -> stringResource(R.string.qobuz_backend_monokenny)
                                 QobuzBackend.JUMO -> stringResource(R.string.qobuz_backend_jumo)
                                 QobuzBackend.SQUID -> stringResource(R.string.qobuz_backend_squid)
                             }

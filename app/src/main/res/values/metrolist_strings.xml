@@ -968,6 +968,7 @@
     <string name="autoplay_desc">Automatically play the next song when the current one ends</string>
 
     <string name="qobuz_backend">Qobuz backend</string>
+    <string name="qobuz_backend_monokenny">Monokenny</string>
     <string name="qobuz_backend_jumo">JUMO-DL</string>
     <string name="qobuz_backend_squid">Squid</string>
     <string name="qobuz_country">Qobuz country</string>
