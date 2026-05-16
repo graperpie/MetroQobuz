@@ -1,3 +1,5 @@
+## NOTE: this fork will no longer be maintained in favour of Metrofuse, as their fork exceeds mine in many aspects (e.g. features, performance, and occasionally stability). seeing as it has every feature that my current fork is advertised as, i see no proper reason to continue maintaining this. i will be porting over my audio quality label feature over to their fork soon.
+
 # MetroQobuz
 
 Qobuz backend replacement for Metrolist
